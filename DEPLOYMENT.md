@@ -27,6 +27,8 @@ Set `COOKIE_SECURE` to `true` in production. Use the Atlas connection URI and Re
 
 Set `TRUST_PROXY_HEADERS` to `true` on Render. Render documents `X-Forwarded-For` as the client IP header. The backend uses the rightmost valid IP in that chain, since proxies append to it, and falls back to the socket address when proxy trust is disabled or the header is invalid. Keep it `false` for local development.
 
+The optional backend settings `WS_PING_INTERVAL`, `WS_PONG_WAIT`, `WS_WRITE_WAIT`, `WS_MAX_MESSAGE_BYTES`, and `WS_MAX_CONNECTIONS_PER_IP` are documented in `backend/.env.example`; Render defaults are used unless you add overrides.
+
 The Render URL will be `https://<render-service>.onrender.com`. Atlas must allow network connections from Render. Use an Atlas network rule appropriate for your Render egress configuration; avoid opening database access broadly when a narrower allowlist is available.
 
 ## Frontend: Vercel
@@ -49,7 +51,7 @@ Set the Render `CLIENT_URL` to the exact production Vercel URL. CORS and WebSock
 
 1. Review and commit the deployment changes in this repository. Keep `.env` files local and untracked.
 2. Rotate the exposed Atlas, Redis Cloud, and JWT credentials, then enter the new values directly in provider settings.
-3. Create the Render web service from `render.yaml` (or enter the same Docker settings manually). Choose Starter or a higher paid plan to avoid idle spin-down. Set the five Render environment variables listed above.
+3. Create the Render web service from `render.yaml` (or enter the same Docker settings manually). Choose Starter or a higher paid plan to avoid idle spin-down. Set the six Render environment variables listed above.
 4. After Render provides its `onrender.com` URL, set `VITE_API_URL` to that origin in Vercel **before** the first frontend deployment.
 5. Set Render's `CLIENT_URL` to the exact Vercel production origin. Do not use a wildcard; the backend checks the exact origin.
 6. Configure Vercel's `frontend` root and Vite build settings listed above, then deploy the frontend from Vercel when ready.

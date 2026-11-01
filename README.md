@@ -67,7 +67,6 @@ live-pole/
 │       ├── hooks/            # Live poll and dashboard WebSocket hooks
 │       ├── pages/            # Application pages
 │       ├── styles/           # Design tokens
-│       └── utils/
 ├── docker-compose.yml        # Local MongoDB and Redis
 └── README.md
 ```
@@ -133,13 +132,15 @@ The backend loads `backend/.env` when started from the `backend` folder. These f
 
 | Variable | Local example | Purpose |
 |---|---|---|
-| `PORT` | `5000` | HTTP and WebSocket server port |
+| `PORT` | `5000` locally; supplied by Render in production | HTTP and WebSocket server port |
 | `MONGO_URI` | Fake placeholder in `.env.example` | MongoDB connection URI; the app uses the `live_polling` database |
 | `REDIS_URL` | Fake TLS placeholder in `.env.example` | Redis TCP connection URL; use `rediss://` when TLS is required |
 | `JWT_SECRET` | Replace the example with a random secret (32+ characters) | Signs and verifies owner JWTs |
 | `CLIENT_URL` | Fake placeholder in `.env.example` | Exact allowed browser origin for CORS and WebSocket checks |
+| `COOKIE_SECURE` | `false` locally; `true` in production | Enables secure voter cookies for HTTPS |
+| `TRUST_PROXY_HEADERS` | `false` locally; `true` on Render | Uses Render's forwarded client IP for rate and connection limits |
 
-`COOKIE_SECURE` defaults to `false`; use `true` on the HTTPS production host. The optional WebSocket settings in `backend/.env.example` control ping/pong timing, write timeout, message size, and per-IP connection limits.
+The required backend variables are `PORT`, `MONGO_URI`, `REDIS_URL`, `JWT_SECRET`, and `CLIENT_URL`. `COOKIE_SECURE` and `TRUST_PROXY_HEADERS` default to `false`. Optional WebSocket settings are `WS_PING_INTERVAL`, `WS_PONG_WAIT`, `WS_WRITE_WAIT`, `WS_MAX_MESSAGE_BYTES`, and `WS_MAX_CONNECTIONS_PER_IP`.
 
 The frontend environment variable is:
 
@@ -156,10 +157,9 @@ To create the local analytics demo account and sample polls, start MongoDB and R
 go run ./cmd/seed
 ```
 
-Demo sign-in:
+Set `SEED_PASSWORD` in `backend/.env` before running the seed tool. It must contain at least 8 characters and has no default. This variable is for local development only; never set it on Render. The seed tool accepts only local MongoDB addresses by default; pass `--allow-remote` explicitly if you intend to seed a remote database.
 
-- Email: `analytics-demo@livepoll.local`
-- Password: `LivePollDemo2026!`
+The tool creates the local analytics demo account and sample polls using the configured password.
 
 **The seed script replaces the existing polls, votes, and views owned by this demo account each time it runs.** Do not use these credentials or seeded data in a public deployment.
 

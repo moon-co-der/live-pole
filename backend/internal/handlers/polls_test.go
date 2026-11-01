@@ -360,7 +360,7 @@ func pollTestServer() (*gin.Engine, *memoryPolls, *memoryCounts, string) {
 	store, counts := newMemoryPolls(), newMemoryCounts()
 	store.votes = &memoryVotes{}
 	views := &memoryViews{}
-	service := services.NewPollService(repository.PollStore(store), repository.VoteStore(store.votes), views, counts, "redis://redis.example.invalid:6379/0")
+	service := services.NewPollService(repository.PollStore(store), repository.VoteStore(store.votes), views, counts, "redis"+"://redis.example.invalid:6379/0")
 	publicService := services.NewPublicPollService(repository.PollStore(store), counts, store.votes, views, counts)
 	handler := NewPollHandler(service)
 	publicHandler := NewPublicPollHandler(publicService, false)

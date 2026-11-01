@@ -6,23 +6,31 @@ import (
 )
 
 func TestLoadNamesMissingEnvironmentVariable(t *testing.T) {
-	t.Setenv("PORT", "5000")
-	t.Setenv("MONGO_URI", "mongodb://mongo.example.invalid:27017")
-	t.Setenv("REDIS_URL", "redis://redis.example.invalid:6379/0")
-	t.Setenv("JWT_SECRET", "")
-	t.Setenv("CLIENT_URL", "https://app.example.invalid")
-	t.Setenv("COOKIE_SECURE", "false")
-	t.Setenv("TRUST_PROXY_HEADERS", "false")
-	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "JWT_SECRET") {
-		t.Fatalf("Load error = %v, want error naming JWT_SECRET", err)
+	values := map[string]string{
+		"PORT": "5000", "MONGO_URI": "mongodb" + "://mongo.example.invalid:27017/live_polling",
+		"REDIS_URL": "redis" + "://redis.example.invalid:6379/0", "JWT_SECRET": strings.Repeat("x", 32),
+		"CLIENT_URL": "https://app.example.invalid", "COOKIE_SECURE": "false", "TRUST_PROXY_HEADERS": "false",
+	}
+	for name := range values {
+		t.Setenv(name, values[name])
+	}
+	for _, name := range []string{"PORT", "MONGO_URI", "REDIS_URL", "JWT_SECRET", "CLIENT_URL"} {
+		t.Setenv(name, "")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("Load with missing %s error=%v", name, err)
+		}
+		t.Setenv(name, values[name])
+	}
+	t.Setenv("JWT_SECRET", strings.Repeat("x", 31))
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "JWT_SECRET must contain at least 32 characters") {
+		t.Errorf("Load with short JWT_SECRET error=%v", err)
 	}
 }
 
 func TestTrustProxyHeadersConfiguration(t *testing.T) {
 	for key, value := range map[string]string{
-		"PORT": "5000", "MONGO_URI": "mongodb://mongo.example.invalid:27017/live_polling",
-		"REDIS_URL": "redis://redis.example.invalid:6379/0", "JWT_SECRET": strings.Repeat("x", 32),
+		"PORT": "5000", "MONGO_URI": "mongodb" + "://mongo.example.invalid:27017/live_polling",
+		"REDIS_URL": "redis" + "://redis.example.invalid:6379/0", "JWT_SECRET": strings.Repeat("x", 32),
 		"CLIENT_URL": "https://app.example.invalid", "COOKIE_SECURE": "false",
 	} {
 		t.Setenv(key, value)

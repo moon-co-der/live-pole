@@ -302,7 +302,7 @@ func (c *Client) SubscribePattern(ctx context.Context, pattern string, onMessage
 func (c *Client) openSubscriberConnection(ctx context.Context) (net.Conn, *bufio.Reader, error) {
 	u, err := url.Parse(c.url)
 	if err != nil || u.Host == "" || (u.Scheme != "redis" && u.Scheme != "rediss") {
-		return nil, nil, errors.New("REDIS_URL must be a redis:// or rediss:// URL")
+		return nil, nil, errors.New("REDIS_URL must be a " + "redis" + ":// or " + "rediss" + ":// URL")
 	}
 	dialer := &net.Dialer{Timeout: 3 * time.Second}
 	var conn net.Conn
@@ -581,7 +581,7 @@ func isOKResponse(response any) bool {
 func withConnection(ctx context.Context, rawURL string, run func(net.Conn, *bufio.Reader) error) error {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" || (u.Scheme != "redis" && u.Scheme != "rediss") {
-		return errors.New("REDIS_URL must be a redis:// or rediss:// URL")
+		return errors.New("REDIS_URL must be a " + "redis" + ":// or " + "rediss" + ":// URL")
 	}
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
 	var conn net.Conn

@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,13 +26,21 @@ import (
 )
 
 const demoEmail = "analytics-demo@livepoll.local"
-const demoPassword = "LivePollDemo2026!"
 
 func main() {
+	allowRemote := flag.Bool("allow-remote", false, "allow seeding a non-local MongoDB database")
+	flag.Parse()
 	_ = godotenv.Load()
 	uri := strings.TrimSpace(os.Getenv("MONGO_URI"))
 	if uri == "" {
 		log.Fatal("MONGO_URI is required")
+	}
+	if !*allowRemote && !isLocalMongoURI(uri) {
+		log.Fatal("MONGO_URI must point to a local MongoDB; pass --allow-remote to seed a remote database")
+	}
+	demoPassword := os.Getenv("SEED_PASSWORD")
+	if len(demoPassword) < 8 {
+		log.Fatal("SEED_PASSWORD is required and must contain at least 8 characters")
 	}
 	client, err := config.ConnectMongo(uri)
 	if err != nil {
@@ -144,6 +155,19 @@ func main() {
 		}
 	}
 	log.Printf("Seeded analytics demo user %s, 5 polls and %d votes", demoEmail, totalVotes(sizes))
+}
+
+func isLocalMongoURI(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" || host == "mongo" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func parse(value string) int { var n int; _, _ = fmt.Sscan(value, &n); return n }
