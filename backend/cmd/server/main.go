@@ -34,11 +34,13 @@ func main() {
 
 	mongoClient, err := config.ConnectMongo(cfg.MongoURI)
 	if err != nil {
+		log.Printf("MongoDB setup failed category=%s", mongoErrorCategory(err))
 		log.Fatal("MongoDB setup failed")
 	}
 	defer func() { _ = mongoClient.Disconnect(context.Background()) }()
 	startupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	if err := config.PingMongo(startupCtx, mongoClient); err != nil {
+		log.Printf("MongoDB startup ping failed category=%s", mongoErrorCategory(err))
 		log.Print("MongoDB is not ready at startup; health checks will report it.")
 	}
 	if err := redisx.Ping(startupCtx, cfg.RedisURL); err != nil {
@@ -50,6 +52,7 @@ func main() {
 	indexCtx, indexCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := users.EnsureIndexes(indexCtx); err != nil {
 		indexCancel()
+		log.Printf("MongoDB user index setup failed category=%s", mongoErrorCategory(err))
 		log.Fatal("User email index setup failed")
 	}
 	indexCancel()
@@ -57,6 +60,7 @@ func main() {
 	pollIndexCtx, pollIndexCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := polls.EnsureIndexes(pollIndexCtx); err != nil {
 		pollIndexCancel()
+		log.Printf("MongoDB poll index setup failed category=%s", mongoErrorCategory(err))
 		log.Fatal("Poll index setup failed")
 	}
 	pollIndexCancel()
@@ -64,6 +68,7 @@ func main() {
 	voteIndexCtx, voteIndexCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := votes.EnsureIndexes(voteIndexCtx); err != nil {
 		voteIndexCancel()
+		log.Printf("MongoDB vote index setup failed category=%s", mongoErrorCategory(err))
 		log.Fatal("Vote index setup failed")
 	}
 	voteIndexCancel()
@@ -71,6 +76,7 @@ func main() {
 	viewIndexCtx, viewIndexCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := views.EnsureIndexes(viewIndexCtx); err != nil {
 		viewIndexCancel()
+		log.Printf("MongoDB view index setup failed category=%s", mongoErrorCategory(err))
 		log.Fatal("View index setup failed")
 	}
 	viewIndexCancel()
@@ -208,6 +214,31 @@ func main() {
 	}
 	if err := mongoClient.Disconnect(shutdownCtx); err != nil {
 		log.Printf("MongoDB disconnect: %v", err)
+	}
+}
+
+// mongoErrorCategory reports only a broad failure class so logs never expose
+// connection strings, usernames, passwords, or raw driver error details.
+func mongoErrorCategory(err error) string {
+	if err == nil {
+		return "none"
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "authentication failed"), strings.Contains(message, "bad auth"), strings.Contains(message, "code 18"):
+		return "authentication"
+	case strings.Contains(message, "not authorized"), strings.Contains(message, "unauthorized"), strings.Contains(message, "code 13"):
+		return "authorization"
+	case strings.Contains(message, "no such host"), strings.Contains(message, "lookup "), strings.Contains(message, "dns"):
+		return "dns"
+	case strings.Contains(message, "x509"), strings.Contains(message, "tls"), strings.Contains(message, "certificate"):
+		return "tls"
+	case strings.Contains(message, "deadline exceeded"), strings.Contains(message, "timeout"):
+		return "timeout"
+	case strings.Contains(message, "server selection"), strings.Contains(message, "connection refused"), strings.Contains(message, "connection reset"), strings.Contains(message, "network"):
+		return "network"
+	default:
+		return "other"
 	}
 }
 
