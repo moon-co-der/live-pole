@@ -3,7 +3,6 @@ package realtime
 import (
 	"encoding/json"
 	"log"
-	"net"
 	"sync"
 	"time"
 
@@ -298,14 +297,6 @@ func (h *Hub) ReleaseIP(ip string) {
 	} else {
 		h.ipCounts[ip]--
 	}
-}
-
-func RemoteIP(remoteAddr string) string {
-	ip, _, err := net.SplitHostPort(remoteAddr)
-	if err == nil {
-		return ip
-	}
-	return remoteAddr
 }
 
 func (h *Hub) Stop() {

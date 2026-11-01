@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"live-polling/internal/middleware"
 	"live-polling/internal/models"
 	"live-polling/internal/realtime"
 	"live-polling/internal/repository"
@@ -52,7 +53,7 @@ func (h *WebSocketHandler) Serve(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "Unable to load poll results.")
 		return
 	}
-	ip := realtime.RemoteIP(c.Request.RemoteAddr)
+	ip := middleware.ClientIP(c)
 	if !h.hub.AcquireIP(ip, h.settings.MaxPerIP) {
 		writeError(c, http.StatusTooManyRequests, "Too many live connections.")
 		return

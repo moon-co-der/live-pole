@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,10 +17,7 @@ type RateLimitStore interface {
 
 func RateLimit(store RateLimitStore, scope string, limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ip := c.Request.RemoteAddr
-		if host, _, err := net.SplitHostPort(ip); err == nil {
-			ip = host
-		}
+		ip := ClientIP(c)
 		allowed, retryAfter, err := store.AllowRateLimit(c.Request.Context(), "rate:"+scope+":"+ip, limit, window)
 		if err != nil {
 			c.AbortWithStatusJSON(503, gin.H{"error": "Request protection is temporarily unavailable."})
@@ -36,4 +34,16 @@ func RateLimit(store RateLimitStore, scope string, limit int, window time.Durati
 		}
 		c.Next()
 	}
+}
+
+// ClientIP uses Render's Cloudflare-overwritten client-IP header when present.
+// It falls back to the socket address for local development and non-Render hosts.
+func ClientIP(c *gin.Context) string {
+	if forwarded := net.ParseIP(strings.TrimSpace(c.GetHeader("CF-Connecting-IP"))); forwarded != nil {
+		return forwarded.String()
+	}
+	if host, _, err := net.SplitHostPort(c.Request.RemoteAddr); err == nil {
+		return host
+	}
+	return c.Request.RemoteAddr
 }

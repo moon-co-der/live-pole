@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"live-polling/internal/middleware"
 	"live-polling/internal/realtime"
 )
 
@@ -74,7 +75,7 @@ func (h *DashboardWSHandler) Serve(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "The WebSocket ticket is invalid.")
 		return
 	}
-	ip := realtime.RemoteIP(c.Request.RemoteAddr)
+	ip := middleware.ClientIP(c)
 	if !h.hub.AcquireIP(ip, h.settings.MaxPerIP) {
 		writeError(c, http.StatusTooManyRequests, "Too many live connections.")
 		return
