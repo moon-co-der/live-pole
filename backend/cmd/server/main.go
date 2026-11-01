@@ -38,7 +38,7 @@ func main() {
 		log.Fatal("MongoDB setup failed")
 	}
 	defer func() { _ = mongoClient.Disconnect(context.Background()) }()
-	startupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	startupCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	if err := config.PingMongo(startupCtx, mongoClient); err != nil {
 		log.Printf("MongoDB startup ping failed category=%s", mongoErrorCategory(err))
 		log.Print("MongoDB is not ready at startup; health checks will report it.")
@@ -49,7 +49,7 @@ func main() {
 	cancel()
 
 	users := repository.NewUserRepository(mongoClient.Database("live_polling").Collection("users"))
-	indexCtx, indexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if err := users.EnsureIndexes(indexCtx); err != nil {
 		indexCancel()
 		log.Printf("MongoDB user index setup failed category=%s", mongoErrorCategory(err))
@@ -57,7 +57,7 @@ func main() {
 	}
 	indexCancel()
 	polls := repository.NewPollRepository(mongoClient.Database("live_polling").Collection("polls"))
-	pollIndexCtx, pollIndexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pollIndexCtx, pollIndexCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if err := polls.EnsureIndexes(pollIndexCtx); err != nil {
 		pollIndexCancel()
 		log.Printf("MongoDB poll index setup failed category=%s", mongoErrorCategory(err))
@@ -65,7 +65,7 @@ func main() {
 	}
 	pollIndexCancel()
 	votes := repository.NewVoteRepository(mongoClient.Database("live_polling").Collection("votes"))
-	voteIndexCtx, voteIndexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	voteIndexCtx, voteIndexCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if err := votes.EnsureIndexes(voteIndexCtx); err != nil {
 		voteIndexCancel()
 		log.Printf("MongoDB vote index setup failed category=%s", mongoErrorCategory(err))
@@ -73,7 +73,7 @@ func main() {
 	}
 	voteIndexCancel()
 	views := repository.NewViewRepository(mongoClient.Database("live_polling").Collection("views"))
-	viewIndexCtx, viewIndexCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	viewIndexCtx, viewIndexCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if err := views.EnsureIndexes(viewIndexCtx); err != nil {
 		viewIndexCancel()
 		log.Printf("MongoDB view index setup failed category=%s", mongoErrorCategory(err))

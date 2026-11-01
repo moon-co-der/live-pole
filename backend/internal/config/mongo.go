@@ -13,7 +13,7 @@ func ConnectMongo(uri string) (*mongo.Client, error) {
 }
 
 func PingMongo(ctx context.Context, client *mongo.Client) error {
-	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return client.Ping(pingCtx, nil)
 }
