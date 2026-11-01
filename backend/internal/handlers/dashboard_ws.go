@@ -54,7 +54,7 @@ func (h *DashboardWSHandler) Ticket(c *gin.Context) {
 }
 
 func (h *DashboardWSHandler) Serve(c *gin.Context) {
-	if c.GetHeader("Origin") != h.origin {
+	if !middleware.IsAllowedOrigin(h.origin, c.GetHeader("Origin")) {
 		writeError(c, http.StatusForbidden, "Origin not allowed.")
 		return
 	}
@@ -81,7 +81,7 @@ func (h *DashboardWSHandler) Serve(c *gin.Context) {
 		writeError(c, http.StatusTooManyRequests, "Too many live connections.")
 		return
 	}
-	upgrader := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024, CheckOrigin: func(r *http.Request) bool { return r.Header.Get("Origin") == h.origin }}
+	upgrader := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024, CheckOrigin: func(r *http.Request) bool { return middleware.IsAllowedOrigin(h.origin, r.Header.Get("Origin")) }}
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		h.hub.ReleaseIP(ip)

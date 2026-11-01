@@ -13,8 +13,9 @@ import (
 
 func CORS(clientURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetHeader("Origin") == clientURL {
-			c.Header("Access-Control-Allow-Origin", clientURL)
+		origin := c.GetHeader("Origin")
+		if IsAllowedOrigin(clientURL, origin) {
+			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Voter-Id")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
@@ -26,6 +27,21 @@ func CORS(clientURL string) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// IsAllowedOrigin checks a comma-separated list of exact browser origins.
+// It intentionally does not accept wildcard or suffix matches.
+func IsAllowedOrigin(allowedOrigins, requestOrigin string) bool {
+	requestOrigin = strings.TrimSpace(requestOrigin)
+	if requestOrigin == "" {
+		return false
+	}
+	for _, allowed := range strings.Split(allowedOrigins, ",") {
+		if strings.TrimRight(strings.TrimSpace(allowed), "/") == requestOrigin {
+			return true
+		}
+	}
+	return false
 }
 
 func JSONRecovery() gin.HandlerFunc {

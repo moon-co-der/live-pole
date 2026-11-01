@@ -136,7 +136,7 @@ The backend loads `backend/.env` when started from the `backend` folder. These f
 | `MONGO_URI` | Fake placeholder in `.env.example` | MongoDB connection URI; the app uses the `live_polling` database |
 | `REDIS_URL` | Fake TLS placeholder in `.env.example` | Redis TCP connection URL; use `rediss://` when TLS is required |
 | `JWT_SECRET` | Replace the example with a random secret (32+ characters) | Signs and verifies owner JWTs |
-| `CLIENT_URL` | Fake placeholder in `.env.example` | Exact allowed browser origin for CORS and WebSocket checks |
+| `CLIENT_URL` | Fake placeholder in `.env.example` | Comma-separated exact browser origins allowed for CORS and WebSocket checks |
 | `COOKIE_SECURE` | `false` locally; `true` in production | Enables secure voter cookies for HTTPS |
 | `TRUST_PROXY_HEADERS` | `false` locally; `true` on Render | Uses Render's forwarded client IP for rate and connection limits |
 
@@ -216,7 +216,7 @@ Manual end-to-end checks:
 ## Production checklist
 
 - Use HTTPS and `wss://`; enable secure voter cookies with `COOKIE_SECURE=true`.
-- Set `CLIENT_URL` to the exact deployed frontend origin.
+- Set `CLIENT_URL` to the exact deployed frontend origin; add exact preview origins separated by commas when needed.
 - Provide a strong private `JWT_SECRET` through the hosting environment, never source control.
 - Provision persistent MongoDB and Redis services and configure their connection URLs.
 - Configure the frontend host to serve `index.html` for client-side routes such as `/p/:slug`.

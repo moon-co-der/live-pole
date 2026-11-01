@@ -45,7 +45,7 @@ Set `VITE_API_URL` in Vercel's **Production** environment before the first deplo
 
 `frontend/vercel.json` rewrites client-side routes to `/index.html`, so poll links and browser refreshes load through the React app. Both WebSocket clients convert the configured API origin to `ws://` or `wss://`; with an empty API URL they use the current host, which works with a configured Vite development proxy.
 
-Set the Render `CLIENT_URL` to the exact production Vercel URL. CORS and WebSocket origin checks allow that single origin. Voter requests carry a stable UUID from frontend local storage, so duplicate-vote protection does not depend on cross-site cookies. The voter cookie remains an HttpOnly fallback; in production it is `Secure` and `SameSite=None`.
+Set the Render `CLIENT_URL` to the exact production Vercel origin. To support Vercel preview deployments too, provide a comma-separated list of exact origins in `CLIENT_URL`, for example `https://your-production-domain.vercel.app,https://your-preview-domain.vercel.app`. CORS and WebSocket origin checks allow only listed origins; do not use wildcards. Voter requests carry a stable UUID from frontend local storage, so duplicate-vote protection does not depend on cross-site cookies. The voter cookie remains an HttpOnly fallback; in production it is `Secure` and `SameSite=None`.
 
 ## Run order
 
@@ -53,7 +53,7 @@ Set the Render `CLIENT_URL` to the exact production Vercel URL. CORS and WebSock
 2. Rotate the exposed Atlas, Redis Cloud, and JWT credentials, then enter the new values directly in provider settings.
 3. Create the Render web service from `render.yaml` (or enter the same Docker settings manually). Choose Starter or a higher paid plan to avoid idle spin-down. Set the six Render environment variables listed above.
 4. After Render provides its `onrender.com` URL, set `VITE_API_URL` to that origin in Vercel **before** the first frontend deployment.
-5. Set Render's `CLIENT_URL` to the exact Vercel production origin. Do not use a wildcard; the backend checks the exact origin.
+5. Set Render's `CLIENT_URL` to the exact Vercel production origin. Add exact preview origins as comma-separated entries when needed. Do not use a wildcard; the backend checks each origin exactly.
 6. Configure Vercel's `frontend` root and Vite build settings listed above, then deploy the frontend from Vercel when ready.
 7. Check the Render health endpoint at `https://<render-service>.onrender.com/api/health`, then verify registration, poll creation, voting, duplicate-vote rejection, and live updates in the deployed site.
 
