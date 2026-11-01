@@ -45,7 +45,7 @@ Set `VITE_API_URL` in Vercel's **Production** environment before the first deplo
 
 `frontend/vercel.json` rewrites client-side routes to `/index.html`, so poll links and browser refreshes load through the React app. Both WebSocket clients convert the configured API origin to `ws://` or `wss://`; with an empty API URL they use the current host, which works with a configured Vite development proxy.
 
-Set the Render `CLIENT_URL` to the exact production Vercel origin. To support Vercel preview deployments too, provide a comma-separated list of exact origins in `CLIENT_URL`, for example `https://your-production-domain.vercel.app,https://your-preview-domain.vercel.app`. CORS and WebSocket origin checks allow only listed origins; do not use wildcards. Voter requests carry a stable UUID from frontend local storage, so duplicate-vote protection does not depend on cross-site cookies. The voter cookie remains an HttpOnly fallback; in production it is `Secure` and `SameSite=None`.
+The Render Blueprint configures `CLIENT_URL` for the deployed Vercel origin `https://frontend-tcln-git-main-moon-co-ders-projects.vercel.app`. If the Vercel production domain changes, update the Render environment variable to that exact origin and redeploy. To support additional preview deployments, use a comma-separated list of exact origins in `CLIENT_URL`; CORS and WebSocket checks reject unlisted origins and do not accept wildcards. Voter requests carry a stable UUID from frontend local storage, so duplicate-vote protection does not depend on cross-site cookies. The voter cookie remains an HttpOnly fallback; in production it is `Secure` and `SameSite=None`.
 
 ## Run order
 

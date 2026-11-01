@@ -16,7 +16,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: CLIENT_URL
-        sync: false
+        value: https://frontend-tcln-git-main-moon-co-ders-projects.vercel.app
       - key: COOKIE_SECURE
         sync: false
       - key: TRUST_PROXY_HEADERS
