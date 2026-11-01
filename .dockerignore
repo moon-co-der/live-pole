@@ -1,0 +1,12 @@
+.git
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/dist
+**/build
+.vercel
+backend/.gocache
+**/*.exe
+**/*.test
+coverage.out

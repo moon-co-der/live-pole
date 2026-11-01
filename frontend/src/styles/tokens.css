@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #1e1b4b;
+  background: #f6f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-variant-numeric: tabular-nums;
+
+  --page: #f6f7fb;
+  --surface: #fff;
+  --border: #e5e7f0;
+  --text: #1e1b4b;
+  --secondary: #5b6078;
+  --muted: #6b7089;
+  --blue: #2563eb;
+  --blue-hover: #1d4ed8;
+  --pink: #ec4899;
+  --purple: #7c3aed;
+  --green: #15803d;
+  --green-bg: #e8f7ee;
+  --blue-bg: #eaf1ff;
+  --slate: #475569;
+  --slate-bg: #f1f5f9;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --grid: #eef0f6;
+  --surface-subtle: #fbfbfe;
+  --surface-glass: rgb(255 255 255 / 78%);
+  --error-border: #fecaca;
+  --danger-hover: #b91c1c;
+  --border-hover: #d4d8e6;
+  --overlay: rgb(30 27 75 / 30%);
+  --action-shadow: rgb(37 99 235 / 22%);
+  --soft-shadow: rgb(16 24 40 / 10%);
+  --dialog-shadow: rgb(16 24 40 / 16%);
+  --violet-light: #a78bfa;
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 4%);
+  --radius-card: 12px;
+  --radius-control: 10px;
+  --nav-height: 64px;
+  --nav-height-sm: 56px;
+  --container: 1200px;
+  --space-page: 32px;
+  --space-card: 24px;
+  --space-section: 24px;
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+  --chart-1: #7c3aed;
+  --chart-2: #ec4899;
+}

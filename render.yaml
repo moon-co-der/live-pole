@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: livepoll-api
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    dockerCommand: /app/livepoll
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 15
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: COOKIE_SECURE
+        sync: false
