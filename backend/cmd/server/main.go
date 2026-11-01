@@ -3,18 +3,24 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"live-polling/internal/config"
 	"live-polling/internal/handlers"
@@ -34,13 +40,13 @@ func main() {
 
 	mongoClient, err := config.ConnectMongo(cfg.MongoURI)
 	if err != nil {
-		log.Printf("MongoDB setup failed category=%s", mongoErrorCategory(err))
+		log.Printf("MongoDB setup failed error_type=%q driver_error=%q", mongoErrorCategory(err), redactedMongoError(err, cfg.MongoURI))
 		log.Fatal("MongoDB setup failed")
 	}
 	defer func() { _ = mongoClient.Disconnect(context.Background()) }()
 	startupCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	if err := config.PingMongo(startupCtx, mongoClient); err != nil {
-		log.Printf("MongoDB startup ping failed category=%s", mongoErrorCategory(err))
+		log.Printf("MongoDB startup ping failed database=%q error_type=%q driver_error=%q", "live_polling", mongoErrorCategory(err), redactedMongoError(err, cfg.MongoURI))
 		log.Print("MongoDB is not ready at startup; health checks will report it.")
 	}
 	if err := redisx.Ping(startupCtx, cfg.RedisURL); err != nil {
@@ -48,38 +54,29 @@ func main() {
 	}
 	cancel()
 
-	users := repository.NewUserRepository(mongoClient.Database("live_polling").Collection("users"))
-	indexCtx, indexCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := users.EnsureIndexes(indexCtx); err != nil {
-		indexCancel()
-		log.Printf("MongoDB user index setup failed category=%s", mongoErrorCategory(err))
-		log.Fatal("User email index setup failed")
+	database := mongoClient.Database("live_polling")
+	users := repository.NewUserRepository(database.Collection("users"))
+	polls := repository.NewPollRepository(database.Collection("polls"))
+	votes := repository.NewVoteRepository(database.Collection("votes"))
+	views := repository.NewViewRepository(database.Collection("views"))
+	var indexesReady atomic.Bool
+	indexFailures := 0
+	ensureIndexes := func(collection string, ensure func(context.Context) error) {
+		indexCtx, indexCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer indexCancel()
+		if err := ensure(indexCtx); err != nil {
+			indexFailures++
+			log.Printf("MongoDB index setup failed database=%q collection=%q error_type=%q driver_error=%q", database.Name(), collection, mongoErrorCategory(err), redactedMongoError(err, cfg.MongoURI))
+		}
 	}
-	indexCancel()
-	polls := repository.NewPollRepository(mongoClient.Database("live_polling").Collection("polls"))
-	pollIndexCtx, pollIndexCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := polls.EnsureIndexes(pollIndexCtx); err != nil {
-		pollIndexCancel()
-		log.Printf("MongoDB poll index setup failed category=%s", mongoErrorCategory(err))
-		log.Fatal("Poll index setup failed")
+	ensureIndexes("users", users.EnsureIndexes)
+	ensureIndexes("polls", polls.EnsureIndexes)
+	ensureIndexes("votes", votes.EnsureIndexes)
+	ensureIndexes("views", views.EnsureIndexes)
+	indexesReady.Store(indexFailures == 0)
+	if indexFailures > 0 {
+		log.Printf("MongoDB index initialization incomplete database=%q failed_collections=%d; server will start degraded", database.Name(), indexFailures)
 	}
-	pollIndexCancel()
-	votes := repository.NewVoteRepository(mongoClient.Database("live_polling").Collection("votes"))
-	voteIndexCtx, voteIndexCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := votes.EnsureIndexes(voteIndexCtx); err != nil {
-		voteIndexCancel()
-		log.Printf("MongoDB vote index setup failed category=%s", mongoErrorCategory(err))
-		log.Fatal("Vote index setup failed")
-	}
-	voteIndexCancel()
-	views := repository.NewViewRepository(mongoClient.Database("live_polling").Collection("views"))
-	viewIndexCtx, viewIndexCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	if err := views.EnsureIndexes(viewIndexCtx); err != nil {
-		viewIndexCancel()
-		log.Printf("MongoDB view index setup failed category=%s", mongoErrorCategory(err))
-		log.Fatal("View index setup failed")
-	}
-	viewIndexCancel()
 	authService := services.NewAuthService(users)
 	authHandler := handlers.NewAuthHandler(authService, cfg.JWTSecret)
 	redisClient := redisx.NewClient(cfg.RedisURL)
@@ -139,6 +136,7 @@ func main() {
 	r.GET("/api/health", handlers.NewHealthHandler(
 		func(ctx context.Context) bool { return config.PingMongo(ctx, mongoClient) == nil },
 		func(ctx context.Context) bool { return redisx.Ping(ctx, cfg.RedisURL) == nil },
+		func(context.Context) bool { return indexesReady.Load() },
 	).Check)
 	r.POST("/api/auth/register", middleware.RateLimit(redisClient, "register", 10, time.Minute, cfg.TrustProxyHeaders), authHandler.Register)
 	r.POST("/api/auth/login", middleware.RateLimit(redisClient, "login", 10, time.Minute, cfg.TrustProxyHeaders), authHandler.Login)
@@ -217,29 +215,61 @@ func main() {
 	}
 }
 
-// mongoErrorCategory reports only a broad failure class so logs never expose
-// connection strings, usernames, passwords, or raw driver error details.
+var mongoURIErrorPattern = regexp.MustCompile(`(?i)mongodb(?:\+srv)?://[^\s"'<>]+`)
+
 func mongoErrorCategory(err error) string {
 	if err == nil {
 		return "none"
 	}
 	message := strings.ToLower(err.Error())
+	var serverErr mongo.ServerError
+	if errors.As(err, &serverErr) {
+		switch {
+		case serverErr.HasErrorCode(13):
+			return "authorization"
+		case serverErr.HasErrorCode(85), serverErr.HasErrorCode(86):
+			return "index conflict"
+		}
+	}
+	if mongo.IsDuplicateKeyError(err) {
+		return "duplicate key"
+	}
 	switch {
-	case strings.Contains(message, "authentication failed"), strings.Contains(message, "bad auth"), strings.Contains(message, "code 18"):
-		return "authentication"
-	case strings.Contains(message, "not authorized"), strings.Contains(message, "unauthorized"), strings.Contains(message, "code 13"):
+	case strings.Contains(message, "not authorized"), strings.Contains(message, "unauthorized"), strings.Contains(message, "code 13"), strings.Contains(message, "authentication failed"), strings.Contains(message, "bad auth"), strings.Contains(message, "code 18"):
 		return "authorization"
-	case strings.Contains(message, "no such host"), strings.Contains(message, "lookup "), strings.Contains(message, "dns"):
-		return "dns"
+	case strings.Contains(message, "indexoptionsconflict"), strings.Contains(message, "indexkeyspecsconflict"), strings.Contains(message, "index conflict"):
+		return "index conflict"
+	case strings.Contains(message, "duplicate key"), strings.Contains(message, "e11000"):
+		return "duplicate key"
 	case strings.Contains(message, "x509"), strings.Contains(message, "tls"), strings.Contains(message, "certificate"):
-		return "tls"
-	case strings.Contains(message, "deadline exceeded"), strings.Contains(message, "timeout"):
+		return "TLS"
+	case errors.Is(err, context.DeadlineExceeded), strings.Contains(message, "context deadline exceeded"):
+		return "context deadline"
+	case isNetTimeout(err), strings.Contains(message, "timeout"), strings.Contains(message, "timed out"):
 		return "timeout"
 	case strings.Contains(message, "server selection"), strings.Contains(message, "connection refused"), strings.Contains(message, "connection reset"), strings.Contains(message, "network"):
+		return "network"
+	case strings.Contains(message, "no such host"), strings.Contains(message, "lookup "), strings.Contains(message, "dns"):
 		return "network"
 	default:
 		return "other"
 	}
+}
+
+func isNetTimeout(err error) bool {
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && networkErr.Timeout()
+}
+
+func redactedMongoError(err error, mongoURI string) string {
+	message := err.Error()
+	if parsed, parseErr := url.Parse(mongoURI); parseErr == nil && parsed.User != nil {
+		message = strings.ReplaceAll(message, parsed.User.String(), "[REDACTED]")
+		if password, ok := parsed.User.Password(); ok && password != "" {
+			message = strings.ReplaceAll(message, password, "[REDACTED]")
+		}
+	}
+	return mongoURIErrorPattern.ReplaceAllString(message, "[REDACTED_MONGODB_URI]")
 }
 
 func runReconciliation(ctx context.Context, polls repository.PollStore, votes repository.VoteStore, cache *redisx.Client) {

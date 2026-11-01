@@ -11,12 +11,17 @@ import (
 type HealthProbe func(context.Context) bool
 
 type HealthHandler struct {
-	mongoProbe HealthProbe
-	redisProbe HealthProbe
+	mongoProbe   HealthProbe
+	redisProbe   HealthProbe
+	indexesProbe HealthProbe
 }
 
-func NewHealthHandler(mongoProbe, redisProbe HealthProbe) *HealthHandler {
-	return &HealthHandler{mongoProbe: mongoProbe, redisProbe: redisProbe}
+func NewHealthHandler(mongoProbe, redisProbe HealthProbe, indexesProbe ...HealthProbe) *HealthHandler {
+	handler := &HealthHandler{mongoProbe: mongoProbe, redisProbe: redisProbe}
+	if len(indexesProbe) > 0 {
+		handler.indexesProbe = indexesProbe[0]
+	}
+	return handler
 }
 
 func (h *HealthHandler) Check(c *gin.Context) {
@@ -31,12 +36,20 @@ func (h *HealthHandler) Check(c *gin.Context) {
 	if h.redisProbe != nil && h.redisProbe(ctx) {
 		redisStatus = "up"
 	}
+	indexesStatus := "up"
+	if h.indexesProbe != nil && !h.indexesProbe(ctx) {
+		indexesStatus = "down"
+	}
 
 	status := http.StatusOK
 	state := "ok"
 	if mongoStatus != "up" || redisStatus != "up" {
 		status = http.StatusServiceUnavailable
 		state = "degraded"
+	} else if indexesStatus != "up" {
+		// Keep the process available for diagnosis while exposing the failed index
+		// state in the response. Render treats 5xx health checks as failed deploys.
+		state = "degraded"
 	}
-	c.JSON(status, gin.H{"status": state, "mongo": mongoStatus, "redis": redisStatus})
+	c.JSON(status, gin.H{"status": state, "mongo": mongoStatus, "redis": redisStatus, "indexes": indexesStatus})
 }

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -29,9 +30,66 @@ func NewUserRepository(collection *mongo.Collection) *UserRepository {
 func (r *UserRepository) EnsureIndexes(ctx context.Context) error {
 	_, err := r.collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "email", Value: 1}},
-		Options: options.Index().SetUnique(true).SetName("email_unique"),
+		Options: options.Index().SetUnique(true),
 	})
+	if err == nil || !isIndexConflict(err) {
+		return err
+	}
+	if r.hasEquivalentEmailIndex(ctx) {
+		return nil
+	}
 	return err
+}
+
+func (r *UserRepository) hasEquivalentEmailIndex(ctx context.Context) bool {
+	cursor, err := r.collection.Indexes().List(ctx)
+	if err != nil {
+		return false
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var index struct {
+			Keys               bson.D   `bson:"key"`
+			Unique             bool     `bson:"unique"`
+			Sparse             bool     `bson:"sparse"`
+			PartialFilter      bson.Raw `bson:"partialFilterExpression"`
+			Collation          bson.Raw `bson:"collation"`
+			ExpireAfterSeconds *int64   `bson:"expireAfterSeconds"`
+		}
+		if cursor.Decode(&index) != nil || len(index.Keys) != 1 {
+			continue
+		}
+		if index.Keys[0].Key != "email" || !isAscendingIndexKey(index.Keys[0].Value) || !index.Unique || index.Sparse || index.PartialFilter != nil || index.Collation != nil || index.ExpireAfterSeconds != nil {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isAscendingIndexKey(value any) bool {
+	switch value := value.(type) {
+	case int32:
+		return value == 1
+	case int64:
+		return value == 1
+	case int:
+		return value == 1
+	case float64:
+		return value == 1
+	default:
+		return false
+	}
+}
+
+func isIndexConflict(err error) bool {
+	var serverErr mongo.ServerError
+	if errors.As(err, &serverErr) && (serverErr.HasErrorCode(85) || serverErr.HasErrorCode(86)) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "indexoptionsconflict") || strings.Contains(message, "indexkeyspecsconflict")
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
