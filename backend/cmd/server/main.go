@@ -142,6 +142,7 @@ func main() {
 	r.POST("/api/auth/login", middleware.RateLimit(redisClient, "login", 10, time.Minute, cfg.TrustProxyHeaders), authHandler.Login)
 	r.GET("/api/public/polls/:slug", middleware.RateLimit(redisClient, "public-get", 60, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.Get)
 	r.POST("/api/public/polls/:slug/vote", middleware.RateLimit(redisClient, "vote", 10, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.Vote)
+	r.POST("/api/public/polls/:slug/live-ticket", middleware.RateLimit(redisClient, "public-live-ticket", 30, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.LiveTicket)
 	r.GET("/ws/polls/:slug", middleware.RateLimit(redisClient, "websocket", 20, time.Minute, cfg.TrustProxyHeaders), wsHandler.Serve)
 	r.GET("/ws/dashboard", middleware.RateLimit(redisClient, "dashboard-websocket", 20, time.Minute, cfg.TrustProxyHeaders), dashboardWSHandler.Serve)
 	ownerRoutes := r.Group("/api")

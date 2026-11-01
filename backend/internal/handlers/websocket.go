@@ -20,6 +20,7 @@ type websocketCounts interface {
 	HGetAll(context.Context, string) (map[string]int64, error)
 	Exists(context.Context, string) (bool, error)
 	HSetTTL(context.Context, string, map[string]string, time.Duration) error
+	GetDel(context.Context, string) (string, bool, error)
 }
 
 type WebSocketHandler struct {
@@ -48,6 +49,30 @@ func (h *WebSocketHandler) Serve(c *gin.Context) {
 	}
 	if poll == nil || poll.Status == models.PollDraft {
 		writeError(c, http.StatusNotFound, "Poll not found.")
+		return
+	}
+	ticket := c.Query("ticket")
+	if ticket == "" {
+		writeError(c, http.StatusForbidden, "Vote before joining live results.")
+		return
+	}
+	ticketValue, found, err := h.counts.GetDel(c.Request.Context(), "poll-live-ticket:"+ticket)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "Unable to authorize live results.")
+		return
+	}
+	parts := strings.Split(ticketValue, ":")
+	if !found || len(parts) != 2 || parts[0] != poll.ID.Hex() {
+		writeError(c, http.StatusForbidden, "Live results access is not authorized.")
+		return
+	}
+	voted, err := h.counts.Exists(c.Request.Context(), "voted:"+parts[0]+":"+parts[1])
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "Unable to authorize live results.")
+		return
+	}
+	if !voted {
+		writeError(c, http.StatusForbidden, "Vote before joining live results.")
 		return
 	}
 	if err := services.EnsurePollCounts(c.Request.Context(), poll, h.counts, h.votes); err != nil {

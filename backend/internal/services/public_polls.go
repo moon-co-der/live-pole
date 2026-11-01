@@ -33,6 +33,7 @@ type PublicPollCounts interface {
 	HGetAll(context.Context, string) (map[string]int64, error)
 	HSetTTL(context.Context, string, map[string]string, time.Duration) error
 	SetNX(context.Context, string, time.Duration) (bool, error)
+	Set(context.Context, string, string, time.Duration) error
 	CastVoteWithTTL(context.Context, string, string, string, []string, time.Duration, redisx.VoteStreamEntry) (redisx.VoteResult, bool, error)
 }
 
@@ -175,6 +176,27 @@ func (s *PublicPollService) Vote(ctx context.Context, slug, voterID, optionID, u
 		}
 	}
 	return buildPublicResultsWithCounts(poll, result.Counts, result.Total), nil
+}
+
+// CreateLiveTicket issues a short-lived, single-use credential only for a voter
+// whose vote marker is already persisted in Redis.
+func (s *PublicPollService) CreateLiveTicket(ctx context.Context, slug, voterID, ticket string) error {
+	poll, err := s.findBySlug(ctx, slug)
+	if err != nil {
+		return err
+	}
+	if poll == nil || poll.Status == models.PollDraft {
+		return ErrPublicPollNotFound
+	}
+	voterHash := hashVoterID(voterID)
+	voted, err := s.counts.Exists(ctx, "voted:"+poll.ID.Hex()+":"+voterHash)
+	if err != nil {
+		return err
+	}
+	if !voted {
+		return ErrAlreadyVoted
+	}
+	return s.counts.Set(ctx, "poll-live-ticket:"+ticket, poll.ID.Hex()+":"+voterHash, 30*time.Second)
 }
 
 func (s *PublicPollService) findBySlug(ctx context.Context, slug string) (*models.Poll, error) {

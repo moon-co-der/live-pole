@@ -13,7 +13,7 @@ export default function PublicPollPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const live = useLivePoll(slug);
+  const live = useLivePoll(slug, hasVoted);
 
   const loadPoll = useCallback(async () => {
     setLoading(true);
@@ -100,13 +100,6 @@ export default function PublicPollPage() {
               <p className="public-poll-message">This poll is closed and no longer accepting votes.</p>
             ) : (
               <>
-                {live.options.length > 0 && <div className="public-poll-results live-preview-results" aria-label="Live poll results">
-                  {liveResults.options.map((option) => {
-                    const percentage = liveResults.totalVotes ? Math.round((option.votes / liveResults.totalVotes) * 100) : 0;
-                    return <div className="public-result-row" key={option.id}><div className="public-result-heading"><span>{option.text}</span><strong>{percentage}%</strong></div><div className="public-result-track"><i style={{ width: `${percentage}%` }} /></div></div>;
-                  })}
-                  <p>{liveResults.totalVotes} {liveResults.totalVotes === 1 ? 'vote' : 'votes'}</p>
-                </div>}
                 <form className="public-vote-form" onSubmit={submitVote}>
                   <fieldset disabled={submitting}>
                     <legend>Choose one option</legend>
@@ -121,7 +114,7 @@ export default function PublicPollPage() {
                 </form>
               </>
             )}
-            <p className="public-poll-footer">Your response is private.</p>
+            {hasVoted && <p className="public-poll-footer">Your response is private.</p>}
           </>
         )}
       </section>

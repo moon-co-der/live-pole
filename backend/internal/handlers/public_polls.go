@@ -89,14 +89,48 @@ func (h *PublicPollHandler) Vote(c *gin.Context) {
 	}
 }
 
+func (h *PublicPollHandler) LiveTicket(c *gin.Context) {
+	voterID, err := getOrCreateVoterID(c, h.cookieSecure)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "A valid voter identifier is required.")
+		return
+	}
+	var bytes [32]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		writeError(c, http.StatusInternalServerError, "Unable to start live results.")
+		return
+	}
+	ticket := base64.RawURLEncoding.EncodeToString(bytes[:])
+	err = h.polls.CreateLiveTicket(c.Request.Context(), c.Param("slug"), voterID, ticket)
+	switch {
+	case errors.Is(err, services.ErrPublicPollNotFound):
+		writeError(c, http.StatusNotFound, "Poll not found.")
+	case errors.Is(err, services.ErrAlreadyVoted):
+		writeError(c, http.StatusForbidden, "Vote before joining live results.")
+	case err != nil:
+		writeError(c, http.StatusInternalServerError, "Unable to start live results.")
+	default:
+		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
+	}
+}
+
 func getOrCreateVoterID(c *gin.Context, cookieSecure bool) (string, error) {
+	// Prefer the server-set, HttpOnly identity so clearing localStorage does not
+	// silently create a fresh voter identity in browsers that retain cookies.
+	if value, err := c.Cookie(voterCookieName); err == nil {
+		if validVoterID(value) {
+			return value, nil
+		}
+		if voterUUIDPattern.MatchString(value) {
+			return strings.ToLower(value), nil
+		}
+	}
 	if value := strings.TrimSpace(c.GetHeader("X-Voter-Id")); value != "" {
 		if !voterUUIDPattern.MatchString(value) {
 			return "", errInvalidVoterID
 		}
-		return strings.ToLower(value), nil
-	}
-	if value, err := c.Cookie(voterCookieName); err == nil && validVoterID(value) {
+		value = strings.ToLower(value)
+		setVoterCookie(c, value, cookieSecure)
 		return value, nil
 	}
 	var bytes [32]byte
@@ -104,16 +138,16 @@ func getOrCreateVoterID(c *gin.Context, cookieSecure bool) (string, error) {
 		return "", fmt.Errorf("generate voter identifier: %w", err)
 	}
 	voterID := base64.RawURLEncoding.EncodeToString(bytes[:])
+	setVoterCookie(c, voterID, cookieSecure)
+	return voterID, nil
+}
+
+func setVoterCookie(c *gin.Context, voterID string, cookieSecure bool) {
 	sameSite := http.SameSiteLaxMode
 	if cookieSecure {
 		sameSite = http.SameSiteNoneMode
 	}
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name: voterCookieName, Value: voterID, Path: "/", MaxAge: 365 * 24 * 60 * 60,
-		Expires: time.Now().Add(365 * 24 * time.Hour), HttpOnly: true, Secure: cookieSecure,
-		SameSite: sameSite,
-	})
-	return voterID, nil
+	http.SetCookie(c.Writer, &http.Cookie{Name: voterCookieName, Value: voterID, Path: "/", MaxAge: 365 * 24 * 60 * 60, Expires: time.Now().Add(365 * 24 * time.Hour), HttpOnly: true, Secure: cookieSecure, SameSite: sameSite})
 }
 
 func validVoterID(value string) bool {

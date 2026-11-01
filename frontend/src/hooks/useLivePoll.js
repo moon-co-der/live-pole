@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { webSocketURL } from '../api/client.js';
+import { apiRequest, webSocketURL } from '../api/client.js';
 
-export default function useLivePoll(slug) {
-  const [live, setLive] = useState({ status: 'connecting', question: '', options: [], counts: {}, total: 0 });
+export default function useLivePoll(slug, enabled) {
+  const [live, setLive] = useState({ status: 'idle', question: '', options: [], counts: {}, total: 0 });
   const closedRef = useRef(false);
   useEffect(() => {
-    if (!slug) return undefined;
+    if (!slug || !enabled) {
+      setLive({ status: 'idle', question: '', options: [], counts: {}, total: 0 });
+      return undefined;
+    }
     let socket;
     let timer;
     let stableTimer;
@@ -16,7 +19,22 @@ export default function useLivePoll(slug) {
     const connect = () => {
       if (stopped || closedRef.current) return;
       setLive((v) => ({ ...v, status: attempts ? 'reconnecting' : 'connecting' }));
-      socket = new WebSocket(webSocketURL(`/ws/polls/${encodeURIComponent(slug)}`));
+      (async () => {
+        try {
+          const response = await apiRequest(`/api/public/polls/${encodeURIComponent(slug)}/live-ticket`, { method: 'POST' });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.ticket || stopped) throw new Error('Unable to authorize live results.');
+          const url = new URL(webSocketURL(`/ws/polls/${encodeURIComponent(slug)}`));
+          url.searchParams.set('ticket', payload.ticket);
+          socket = new WebSocket(url.toString());
+          attachSocket();
+        } catch {
+          if (!stopped) setLive((v) => ({ ...v, status: 'reconnecting' }));
+          if (!stopped) timer = window.setTimeout(connect, 3000);
+        }
+      })();
+    };
+    const attachSocket = () => {
       socket.onopen = () => { setLive((v) => ({ ...v, status: 'live' })); stableTimer = window.setTimeout(() => { attempts = 0; }, 5000); };
       socket.onmessage = ({ data }) => {
         let message;
@@ -38,6 +56,6 @@ export default function useLivePoll(slug) {
     };
     connect();
     return () => { stopped = true; window.clearTimeout(timer); window.clearTimeout(stableTimer); socket?.close(); };
-  }, [slug]);
+  }, [slug, enabled]);
   return live;
 }
