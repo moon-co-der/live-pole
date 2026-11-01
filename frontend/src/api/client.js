@@ -1,4 +1,8 @@
-const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const apiBaseURL = (
+  import.meta.env.PROD
+    ? 'https://livepoll-api-kxqq.onrender.com'
+    : (import.meta.env.VITE_API_URL || '')
+).replace(/\/+$/, '');
 export const tokenStorageKey = 'livepoll_token';
 const voterStorageKey = 'livepoll_voter_id';
 
