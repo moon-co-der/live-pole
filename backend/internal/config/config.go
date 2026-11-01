@@ -15,6 +15,7 @@ type Config struct {
 	JWTSecret             string
 	ClientURL             string
 	CookieSecure          bool
+	TrustProxyHeaders     bool
 	WSPingInterval        time.Duration
 	WSPongWait            time.Duration
 	WSWriteWait           time.Duration
@@ -52,6 +53,15 @@ func Load() (Config, error) {
 		cfg.CookieSecure = true
 	default:
 		return Config{}, fmt.Errorf("COOKIE_SECURE must be true or false")
+	}
+	trustProxyHeaders := strings.TrimSpace(os.Getenv("TRUST_PROXY_HEADERS"))
+	switch strings.ToLower(trustProxyHeaders) {
+	case "", "false":
+		cfg.TrustProxyHeaders = false
+	case "true":
+		cfg.TrustProxyHeaders = true
+	default:
+		return Config{}, fmt.Errorf("TRUST_PROXY_HEADERS must be true or false")
 	}
 	cfg.WSPingInterval, err = durationEnv("WS_PING_INTERVAL", 30*time.Second)
 	if err != nil {

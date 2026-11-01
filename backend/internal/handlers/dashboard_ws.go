@@ -22,14 +22,15 @@ type dashboardTicketStore interface {
 }
 
 type DashboardWSHandler struct {
-	store    dashboardTicketStore
-	hub      *realtime.Hub
-	origin   string
-	settings realtime.Settings
+	store             dashboardTicketStore
+	hub               *realtime.Hub
+	origin            string
+	settings          realtime.Settings
+	trustProxyHeaders bool
 }
 
-func NewDashboardWSHandler(store dashboardTicketStore, hub *realtime.Hub, origin string, settings realtime.Settings) *DashboardWSHandler {
-	return &DashboardWSHandler{store: store, hub: hub, origin: strings.TrimRight(origin, "/"), settings: settings}
+func NewDashboardWSHandler(store dashboardTicketStore, hub *realtime.Hub, origin string, settings realtime.Settings, trustProxyHeaders bool) *DashboardWSHandler {
+	return &DashboardWSHandler{store: store, hub: hub, origin: strings.TrimRight(origin, "/"), settings: settings, trustProxyHeaders: trustProxyHeaders}
 }
 
 func (h *DashboardWSHandler) Ticket(c *gin.Context) {
@@ -75,7 +76,7 @@ func (h *DashboardWSHandler) Serve(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "The WebSocket ticket is invalid.")
 		return
 	}
-	ip := middleware.ClientIP(c)
+	ip := middleware.ClientIP(c, h.trustProxyHeaders)
 	if !h.hub.AcquireIP(ip, h.settings.MaxPerIP) {
 		writeError(c, http.StatusTooManyRequests, "Too many live connections.")
 		return

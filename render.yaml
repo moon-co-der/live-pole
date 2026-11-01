@@ -19,3 +19,5 @@ services:
         sync: false
       - key: COOKIE_SECURE
         sync: false
+      - key: TRUST_PROXY_HEADERS
+        value: "true"

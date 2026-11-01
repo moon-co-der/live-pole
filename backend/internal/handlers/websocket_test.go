@@ -22,7 +22,7 @@ func TestWebSocketRejectsWrongOriginAndUnknownPoll(t *testing.T) {
 	go hub.Run()
 	defer hub.Stop()
 	router := gin.New()
-	router.GET("/ws/polls/:slug", NewWebSocketHandler(polls, &memoryVotes{}, counts, hub, "https://app.example.invalid", realtime.Settings{PingInterval: time.Hour, PongWait: 2 * time.Hour, WriteWait: time.Second, MaxMessage: 1024, MaxPerIP: 2}).Serve)
+	router.GET("/ws/polls/:slug", NewWebSocketHandler(polls, &memoryVotes{}, counts, hub, "https://app.example.invalid", realtime.Settings{PingInterval: time.Hour, PongWait: 2 * time.Hour, WriteWait: time.Second, MaxMessage: 1024, MaxPerIP: 2}, false).Serve)
 	wrongOrigin := httptest.NewRequest(http.MethodGet, "/ws/polls/testSlug", nil)
 	wrongOrigin.Header.Set("Origin", "https://wrong.example")
 	wrongResult := httptest.NewRecorder()

@@ -21,8 +21,11 @@ Set these environment variable names in the Render service settings. Enter secre
 - `JWT_SECRET`
 - `CLIENT_URL`
 - `COOKIE_SECURE`
+- `TRUST_PROXY_HEADERS`
 
 Set `COOKIE_SECURE` to `true` in production. Use the Atlas connection URI and Redis Cloud TCP URI from their provider dashboards; use the Redis TLS form (`rediss://`) when TLS is enabled. `JWT_SECRET` must be a private random value of at least 32 characters. Set `CLIENT_URL` to the exact Vercel production origin, with no path or trailing slash. Render supplies `PORT` automatically.
+
+Set `TRUST_PROXY_HEADERS` to `true` on Render. Render documents `X-Forwarded-For` as the client IP header. The backend uses the rightmost valid IP in that chain, since proxies append to it, and falls back to the socket address when proxy trust is disabled or the header is invalid. Keep it `false` for local development.
 
 The Render URL will be `https://<render-service>.onrender.com`. Atlas must allow network connections from Render. Use an Atlas network rule appropriate for your Render egress configuration; avoid opening database access broadly when a narrower allowlist is available.
 

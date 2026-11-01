@@ -23,16 +23,17 @@ type websocketCounts interface {
 }
 
 type WebSocketHandler struct {
-	polls    repository.PollStore
-	votes    repository.VoteStore
-	counts   websocketCounts
-	hub      *realtime.Hub
-	origin   string
-	settings realtime.Settings
+	polls             repository.PollStore
+	votes             repository.VoteStore
+	counts            websocketCounts
+	hub               *realtime.Hub
+	origin            string
+	settings          realtime.Settings
+	trustProxyHeaders bool
 }
 
-func NewWebSocketHandler(polls repository.PollStore, votes repository.VoteStore, counts websocketCounts, hub *realtime.Hub, origin string, settings realtime.Settings) *WebSocketHandler {
-	return &WebSocketHandler{polls: polls, votes: votes, counts: counts, hub: hub, origin: strings.TrimRight(origin, "/"), settings: settings}
+func NewWebSocketHandler(polls repository.PollStore, votes repository.VoteStore, counts websocketCounts, hub *realtime.Hub, origin string, settings realtime.Settings, trustProxyHeaders bool) *WebSocketHandler {
+	return &WebSocketHandler{polls: polls, votes: votes, counts: counts, hub: hub, origin: strings.TrimRight(origin, "/"), settings: settings, trustProxyHeaders: trustProxyHeaders}
 }
 
 func (h *WebSocketHandler) Serve(c *gin.Context) {
@@ -53,7 +54,7 @@ func (h *WebSocketHandler) Serve(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "Unable to load poll results.")
 		return
 	}
-	ip := middleware.ClientIP(c)
+	ip := middleware.ClientIP(c, h.trustProxyHeaders)
 	if !h.hub.AcquireIP(ip, h.settings.MaxPerIP) {
 		writeError(c, http.StatusTooManyRequests, "Too many live connections.")
 		return
