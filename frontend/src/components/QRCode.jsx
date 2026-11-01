@@ -152,7 +152,7 @@ export default function QRCode({ value }) {
   }));
 
   return (
-    <svg className="share-qr" viewBox={`0 0 ${dimension} ${dimension}`} width={size} height={size} role="img" aria-label="QR code for the poll share link" shapeRendering="crispEdges">
+    <svg className="share-qr" viewBox={`0 0 ${dimension} ${dimension}`} role="img" aria-label="QR code for the poll share link" shapeRendering="crispEdges">
       <rect className="qr-background" width={dimension} height={dimension} />
       <path className="qr-modules" d={path} />
     </svg>

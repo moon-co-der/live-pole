@@ -29,11 +29,10 @@ export function webSocketURL(path) {
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${scheme}//${window.location.host}${path}`;
   }
-  const url = new URL(apiBaseURL);
+  const url = new URL(path, apiBaseURL);
   const websocketProtocol = { 'http:': 'ws:', 'https:': 'wss:' }[url.protocol];
   if (!websocketProtocol) throw new Error('VITE_API_URL must use http or https.');
   url.protocol = websocketProtocol;
-  url.pathname = `${url.pathname.replace(/\/+$/, '')}${path}`;
   return url.toString();
 }
 
