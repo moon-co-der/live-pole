@@ -51,6 +51,10 @@ func (h *WebSocketHandler) Serve(c *gin.Context) {
 		writeError(c, http.StatusNotFound, "Poll not found.")
 		return
 	}
+	if !websocket.IsWebSocketUpgrade(c.Request) {
+		writeError(c, http.StatusBadRequest, "WebSocket upgrade required.")
+		return
+	}
 	ticket := c.Query("ticket")
 	if ticket == "" {
 		writeError(c, http.StatusForbidden, "Vote before joining live results.")
@@ -64,6 +68,15 @@ func (h *WebSocketHandler) Serve(c *gin.Context) {
 	parts := strings.Split(ticketValue, ":")
 	if !found || len(parts) != 2 || parts[0] != poll.ID.Hex() {
 		writeError(c, http.StatusForbidden, "Live results access is not authorized.")
+		return
+	}
+	voted, err := h.counts.Exists(c.Request.Context(), "voted:"+parts[0]+":"+parts[1])
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "Unable to authorize live results.")
+		return
+	}
+	if !voted {
+		writeError(c, http.StatusForbidden, "Vote before joining live results.")
 		return
 	}
 	if err := services.EnsurePollCounts(c.Request.Context(), poll, h.counts, h.votes); err != nil {
