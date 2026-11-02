@@ -341,7 +341,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .form-success { padding: 12px; border: 1px solid var(--green-bg); border-radius: var(--radius-control); background: var(--green-bg); color: var(--green); font-size: 14px; }
 
 /* Public voting */
-.public-poll-page { display: grid; min-height: 100dvh; place-items: center; padding: 24px 16px max(24px, env(safe-area-inset-bottom)); background: var(--page); }
+.public-poll-page { display: grid; min-height: 100dvh; align-content: center; justify-content: center; justify-items: center; gap: 12px; padding: 24px 16px max(24px, env(safe-area-inset-bottom)); background: var(--page); }
 .public-poll-card { width: min(100%, 560px); min-width: 0; padding: clamp(20px, 5vw, 40px); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-card); }
 .public-poll-card > .brand-mark { margin-bottom: 20px; }
 .public-poll-status { display: flex; min-height: 28px; align-items: center; gap: 8px; margin: 8px 0 14px; color: var(--secondary); font-size: 12px; font-weight: 500; }
@@ -349,14 +349,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .public-poll-status i.is-closed { background: var(--slate); }
 .public-poll-status i.is-reconnecting { background: var(--blue); animation: status-pulse 1.2s ease-in-out infinite alternate; }
 @keyframes status-pulse { to { opacity: .45; } }
-.public-poll-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 0 0 22px; }
+.public-poll-stats { display: grid; width: min(100%, 560px); grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .public-poll-stat { display: grid; min-width: 0; min-height: 66px; align-content: center; gap: 3px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .public-poll-stat strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 17px; font-weight: 650; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
 .public-poll-stat span { overflow: hidden; color: var(--muted); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .public-poll-stat.is-empty strong { color: var(--secondary); font-size: 13px; font-weight: 550; line-height: 15px; white-space: normal; }
 .public-stat-value { animation: public-stat-change 240ms ease-out; }
 @keyframes public-stat-change { from { opacity: .35; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 500px) { .public-poll-stats { gap: 6px; margin-bottom: 18px; } .public-poll-stat { min-height: 60px; padding: 7px 8px; } .public-poll-stat strong { font-size: 15px; } .public-poll-stat.is-empty strong { font-size: 12px; } .public-poll-stat span { font-size: 11px; } }
+@media (max-width: 500px) { .public-poll-stats { gap: 6px; } .public-poll-stat { min-height: 60px; padding: 7px 8px; } .public-poll-stat strong { font-size: 15px; } .public-poll-stat.is-empty strong { font-size: 12px; } .public-poll-stat span { font-size: 11px; } }
 @media (max-width: 359px) { .public-poll-stats { grid-template-columns: 1fr; } .public-poll-stat { min-height: 54px; padding: 8px 10px; } }
 .public-poll-card h1 { margin: 0 0 22px; color: var(--text); font-size: clamp(22px, 5vw, 28px); line-height: 36px; overflow-wrap: anywhere; }
 .public-poll-message { color: var(--secondary); }

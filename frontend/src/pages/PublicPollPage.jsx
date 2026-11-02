@@ -145,6 +145,13 @@ export default function PublicPollPage() {
 
   return (
     <main className="public-poll-page">
+      {!loading && poll && (
+        <div className="public-poll-stats" aria-label="Poll activity" aria-live="polite">
+          <article className="public-poll-stat"><strong key={`votes-${totalVotes}`} className="public-stat-value">{totalVotes.toLocaleString()}</strong><span>Total votes</span></article>
+          <article className={`public-poll-stat${totalVotes === 0 ? ' is-empty' : ''}`}><strong key={`leader-${leadingSummary}`} className="public-stat-value">{leadingSummary}</strong><span>Leading option</span></article>
+          <article className="public-poll-stat" title="New votes observed through live updates on this page during the last hour"><strong key={`recent-${votesLastHour}`} className="public-stat-value">{votesLastHour.toLocaleString()}</strong><span>Votes · last hour</span></article>
+        </div>
+      )}
       <section className="public-poll-card" aria-live="polite">
         <BrandMark/>
         {loading && <div className="vote-skeleton" aria-label="Loading poll"><i/><i/><i/></div>}
@@ -152,11 +159,6 @@ export default function PublicPollPage() {
         {!loading && poll && (
           <>
             <div className="public-poll-status"><i className={statusClass} />{statusLabel}</div>
-            <div className="public-poll-stats" aria-label="Poll activity" aria-live="polite">
-              <article className="public-poll-stat"><strong key={`votes-${totalVotes}`} className="public-stat-value">{totalVotes.toLocaleString()}</strong><span>Total votes</span></article>
-              <article className={`public-poll-stat${totalVotes === 0 ? ' is-empty' : ''}`}><strong key={`leader-${leadingSummary}`} className="public-stat-value">{leadingSummary}</strong><span>Leading option</span></article>
-              <article className="public-poll-stat" title="New votes observed through live updates on this page during the last hour"><strong key={`recent-${votesLastHour}`} className="public-stat-value">{votesLastHour.toLocaleString()}</strong><span>Votes · last hour</span></article>
-            </div>
             <h1>{poll.question}</h1>
             {error && <p className="public-poll-error" role="alert">{error}</p>}
             {hasVoted && liveResults ? (
