@@ -62,7 +62,7 @@ func persistStreamVote(ctx context.Context, redis *redisx.Client, polls reposito
 		}
 		return
 	}
-	entry := redisx.VoteStreamEntry{VoteID: fields["voteId"], PollID: fields["pollId"], OptionID: fields["optionId"], CreatedAt: fields["createdAt"], Device: fields["device"], VoterHash: fields["voterHash"], Source: fields["source"], Country: fields["country"], VisitorHash: fields["visitorHash"]}
+	entry := redisx.VoteStreamEntry{VoteID: fields["voteId"], PollID: fields["pollId"], OptionID: fields["optionId"], CreatedAt: fields["createdAt"], VoterHash: fields["voterHash"]}
 	_, err = PersistVoteEvent(ctx, polls, votes, entry)
 	if err != nil {
 		log.Printf("MongoDB vote write deferred for stream entry %s: %v", message.ID, err)
@@ -92,7 +92,7 @@ func PersistVoteEvent(ctx context.Context, polls repository.PollStore, votes rep
 	if poll == nil {
 		return false, nil
 	}
-	vote := &models.Vote{VoteID: entry.VoteID, PollID: pollID, OptionID: entry.OptionID, CreatedAt: createdAt, Device: entry.Device, VoterHash: entry.VoterHash, Source: entry.Source, Country: entry.Country, VisitorHash: entry.VisitorHash}
+	vote := &models.Vote{VoteID: entry.VoteID, PollID: pollID, OptionID: entry.OptionID, CreatedAt: createdAt, VoterHash: entry.VoterHash}
 	if err := votes.Create(ctx, vote); err != nil {
 		if repository.IsDuplicateVote(err) {
 			return false, nil

@@ -122,11 +122,9 @@ func main() {
 			daysAgo := random.Intn(30)
 			at := now.AddDate(0, 0, -daysAgo)
 			at = time.Date(at.Year(), at.Month(), at.Day(), hour, random.Intn(60), 0, 0, time.UTC)
-			device := []string{"desktop", "mobile", "tablet"}[random.Intn(3)]
-			source := []string{"direct", "localhost", "livepoll.example"}[random.Intn(3)]
 			seedVoter := fmt.Sprintf("seed-%s-%d", poll.ID.Hex(), voteIndex)
 			voterHash := sha256.Sum256([]byte(seedVoter))
-			vote := models.Vote{VoteID: bson.NewObjectID().Hex(), PollID: poll.ID, OptionID: option.ID, CreatedAt: at, Device: device, Source: source, VoterHash: hex.EncodeToString(voterHash[:])}
+			vote := models.Vote{VoteID: bson.NewObjectID().Hex(), PollID: poll.ID, OptionID: option.ID, CreatedAt: at, VoterHash: hex.EncodeToString(voterHash[:])}
 			if _, err := voteCollection.InsertOne(ctx, vote); err != nil {
 				log.Fatal(err)
 			}
@@ -139,8 +137,7 @@ func main() {
 		for viewIndex := 0; viewIndex < viewCount; viewIndex++ {
 			at := now.AddDate(0, 0, -random.Intn(30))
 			at = time.Date(at.Year(), at.Month(), at.Day(), random.Intn(24), random.Intn(60), 0, 0, time.UTC)
-			source := []string{"direct", "localhost", "livepoll.example"}[random.Intn(3)]
-			if _, err := viewCollection.InsertOne(ctx, models.View{PollID: poll.ID, CreatedAt: at, Source: source}); err != nil {
+			if _, err := viewCollection.InsertOne(ctx, models.View{PollID: poll.ID, CreatedAt: at}); err != nil {
 				log.Fatal(err)
 			}
 		}

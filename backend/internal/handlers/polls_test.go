@@ -58,6 +58,14 @@ func (m *memoryPolls) FindOwned(_ context.Context, id, owner bson.ObjectID) (*mo
 	}
 	return poll, nil
 }
+func (m *memoryPolls) FindOwnedBySlug(_ context.Context, slug string, owner bson.ObjectID) (*models.Poll, error) {
+	for _, poll := range m.items {
+		if poll.Slug == slug && poll.Owner == owner {
+			return poll, nil
+		}
+	}
+	return nil, nil
+}
 func (m *memoryPolls) FindByID(_ context.Context, id bson.ObjectID) (*models.Poll, error) {
 	return m.items[id.Hex()], nil
 }
@@ -158,6 +166,29 @@ func (m *memoryPolls) List(_ context.Context, filter repository.PollListFilter) 
 		end = len(items)
 	}
 	return items[start:end], total, nil
+}
+
+type memoryAnalyticsStore struct{ polls *memoryPolls }
+
+func (m memoryAnalyticsStore) OwnerSnapshot(_ context.Context, owner bson.ObjectID) (repository.AnalyticsSnapshot, error) {
+	polls := make([]models.Poll, 0)
+	for _, poll := range m.polls.items {
+		if poll.Owner == owner {
+			polls = append(polls, *poll)
+		}
+	}
+	return repository.AnalyticsSnapshot{Polls: polls}, nil
+}
+
+func (m memoryAnalyticsStore) PollSnapshot(_ context.Context, owner bson.ObjectID, slugOrID string) (*models.Poll, repository.AnalyticsSnapshot, error) {
+	id, parseErr := bson.ObjectIDFromHex(slugOrID)
+	for _, poll := range m.polls.items {
+		matches := (parseErr == nil && poll.ID == id) || (parseErr != nil && poll.Slug == slugOrID)
+		if poll.Owner == owner && matches {
+			return poll, repository.AnalyticsSnapshot{Polls: []models.Poll{*poll}}, nil
+		}
+	}
+	return nil, repository.AnalyticsSnapshot{}, nil
 }
 
 type memoryCounts struct {
@@ -376,9 +407,11 @@ func pollTestServer() (*gin.Engine, *memoryPolls, *memoryCounts, string) {
 	owner := router.Group("/api", middleware.AuthRequired(secret))
 	owner.POST("/polls", handler.Create)
 	owner.GET("/polls", handler.List)
-	owner.GET("/polls/:id", handler.Get)
-	owner.PATCH("/polls/:id/close", handler.Close)
-	owner.DELETE("/polls/:id", handler.Delete)
+	owner.GET("/polls/:slug", handler.Get)
+	owner.PATCH("/polls/:slug/close", handler.Close)
+	owner.DELETE("/polls/:slug", handler.Delete)
+	analyticsHandler := NewAnalyticsHandler(services.NewAnalyticsService(memoryAnalyticsStore{polls: store}))
+	owner.GET("/polls/:slug/analytics", analyticsHandler.Poll)
 	router.GET("/api/public/polls/:slug", publicHandler.Get)
 	router.POST("/api/public/polls/:slug/vote", publicHandler.Vote)
 	return router, store, counts, secret
@@ -445,7 +478,7 @@ func TestCreatePollRejectsInvalidInput(t *testing.T) {
 }
 
 func TestPollListAndDetailAreOwnerScoped(t *testing.T) {
-	router, _, _, secret := pollTestServer()
+	router, store, _, secret := pollTestServer()
 	ownerA, ownerB := bson.ObjectID{1, 1, 1}, bson.ObjectID{2, 2, 2}
 	tokenA, _ := services.SignToken(ownerA.Hex(), secret)
 	tokenB, _ := services.SignToken(ownerB.Hex(), secret)
@@ -482,6 +515,87 @@ func TestPollListAndDetailAreOwnerScoped(t *testing.T) {
 	}
 	if other := request(router, http.MethodGet, "/api/polls/"+pollA1, "", tokenB); other.Code != http.StatusNotFound {
 		t.Fatalf("cross-owner detail status=%d", other.Code)
+	}
+	if own := request(router, http.MethodGet, "/api/polls/"+store.items[pollA1].Slug, "", tokenA); own.Code != http.StatusOK {
+		t.Fatalf("owner slug detail status=%d", own.Code)
+	}
+	if other := request(router, http.MethodGet, "/api/polls/"+store.items[pollA1].Slug, "", tokenB); other.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner slug detail status=%d", other.Code)
+	}
+}
+
+func TestCreatorPollDetailLegacyObjectIDReturnsCanonicalSlug(t *testing.T) {
+	router, store, _, secret := pollTestServer()
+	owner := bson.ObjectID{3, 3, 3}
+	token, _ := services.SignToken(owner.Hex(), secret)
+	created := request(router, http.MethodPost, "/api/polls", `{"question":"Legacy link lookup?","options":["A","B"]}`, token)
+	var result struct {
+		ID   string      `json:"id"`
+		Poll models.Poll `json:"poll"`
+	}
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &result) != nil {
+		t.Fatalf("create poll: %d %s", created.Code, created.Body.String())
+	}
+	response := request(router, http.MethodGet, "/api/polls/"+result.ID, "", token)
+	var detail struct {
+		Poll models.Poll `json:"poll"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &detail) != nil {
+		t.Fatalf("legacy ID detail: %d %s", response.Code, response.Body.String())
+	}
+	if detail.Poll.Slug == "" || detail.Poll.Slug != store.items[result.ID].Slug {
+		t.Fatalf("legacy ID lookup did not return its canonical slug: %+v", detail.Poll)
+	}
+}
+
+func TestCreatorPollDetailBySlugStillBlocksNonOwner(t *testing.T) {
+	router, store, _, secret := pollTestServer()
+	ownerA, ownerB := bson.ObjectID{4, 4, 4}, bson.ObjectID{5, 5, 5}
+	tokenA, _ := services.SignToken(ownerA.Hex(), secret)
+	tokenB, _ := services.SignToken(ownerB.Hex(), secret)
+	created := request(router, http.MethodPost, "/api/polls", `{"question":"Owner check by slug?","options":["A","B"]}`, tokenA)
+	var result struct {
+		ID   string      `json:"id"`
+		Poll models.Poll `json:"poll"`
+	}
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &result) != nil {
+		t.Fatalf("create poll: %d %s", created.Code, created.Body.String())
+	}
+	if own := request(router, http.MethodGet, "/api/polls/"+result.Poll.Slug, "", tokenA); own.Code != http.StatusOK {
+		t.Fatalf("owner slug detail status=%d body=%s", own.Code, own.Body.String())
+	}
+	if other := request(router, http.MethodGet, "/api/polls/"+store.items[result.ID].Slug, "", tokenB); other.Code != http.StatusNotFound {
+		t.Fatalf("non-owner slug detail status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestCreatorAnalyticsLegacyObjectIDReturnsSlugAndBlocksNonOwner(t *testing.T) {
+	router, _, _, secret := pollTestServer()
+	ownerA, ownerB := bson.ObjectID{6, 6, 6}, bson.ObjectID{7, 7, 7}
+	tokenA, _ := services.SignToken(ownerA.Hex(), secret)
+	tokenB, _ := services.SignToken(ownerB.Hex(), secret)
+	created := request(router, http.MethodPost, "/api/polls", `{"question":"Analytics slug redirect?","options":["A","B"]}`, tokenA)
+	var result struct {
+		ID   string      `json:"id"`
+		Poll models.Poll `json:"poll"`
+	}
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &result) != nil {
+		t.Fatalf("create poll: %d %s", created.Code, created.Body.String())
+	}
+	response := request(router, http.MethodGet, "/api/polls/"+result.ID+"/analytics", "", tokenA)
+	var analytics struct {
+		Poll struct {
+			Slug string `json:"slug"`
+		} `json:"poll"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &analytics) != nil {
+		t.Fatalf("legacy ID analytics: %d %s", response.Code, response.Body.String())
+	}
+	if analytics.Poll.Slug != result.Poll.Slug {
+		t.Fatalf("analytics did not return canonical slug: got %q want %q", analytics.Poll.Slug, result.Poll.Slug)
+	}
+	if blocked := request(router, http.MethodGet, "/api/polls/"+result.Poll.Slug+"/analytics", "", tokenB); blocked.Code != http.StatusNotFound {
+		t.Fatalf("non-owner analytics status=%d body=%s", blocked.Code, blocked.Body.String())
 	}
 }
 
@@ -596,8 +710,8 @@ func TestPublicPollCookieVoteAndReloadResults(t *testing.T) {
 	if got := counts.hashes["poll:"+created.ID+":counts"]; got["option-1"] != "1" || got["total"] != "1" {
 		t.Fatalf("vote count not atomic: %#v", got)
 	}
-	if len(counts.stream) != 1 || counts.stream[0].VoterHash == cookie.Value || counts.stream[0].Device != "mobile" || counts.stream[0].VoteID == "" {
-		t.Fatalf("vote was not queued with a unique id and hashed voter/device: %+v", counts.stream)
+	if len(counts.stream) != 1 || counts.stream[0].VoterHash == cookie.Value || counts.stream[0].VoteID == "" {
+		t.Fatalf("vote was not queued with a unique id and hashed voter: %+v", counts.stream)
 	}
 }
 
@@ -621,7 +735,7 @@ func TestMissingCountsRebuildFromVoteRecordsAndReconcile(t *testing.T) {
 	entry := counts.stream[0]
 	pollID, _ := bson.ObjectIDFromHex(entry.PollID)
 	createdAt, _ := time.Parse(time.RFC3339Nano, entry.CreatedAt)
-	if err := store.votes.Create(context.Background(), &models.Vote{VoteID: entry.VoteID, PollID: pollID, OptionID: entry.OptionID, CreatedAt: createdAt, Device: entry.Device, VoterHash: entry.VoterHash}); err != nil {
+	if err := store.votes.Create(context.Background(), &models.Vote{VoteID: entry.VoteID, PollID: pollID, OptionID: entry.OptionID, CreatedAt: createdAt, VoterHash: entry.VoterHash}); err != nil {
 		t.Fatal(err)
 	}
 	countsKey := "poll:" + result.ID + ":counts"

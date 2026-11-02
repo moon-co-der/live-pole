@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -76,11 +75,7 @@ func NewPublicPollService(polls repository.PollStore, counts PublicPollCounts, v
 	return &PublicPollService{polls: polls, counts: counts, votes: votes, views: views, publisher: publisher, analyticsSalt: analyticsSalt}
 }
 
-func (s *PublicPollService) Get(ctx context.Context, slug, voterID, referer string) (*PublicPollResponse, error) {
-	return s.GetTracked(ctx, slug, voterID, referer, "", "")
-}
-
-func (s *PublicPollService) GetTracked(ctx context.Context, slug, voterID, referer, userAgent, country string) (*PublicPollResponse, error) {
+func (s *PublicPollService) Get(ctx context.Context, slug, voterID string) (*PublicPollResponse, error) {
 	poll, err := s.findBySlug(ctx, slug)
 	if err != nil {
 		return nil, err
@@ -92,15 +87,25 @@ func (s *PublicPollService) GetTracked(ctx context.Context, slug, voterID, refer
 		return nil, err
 	}
 
-	voterHash := hashVoterID(voterID)
-	viewKey := "viewed:" + poll.ID.Hex() + ":" + voterHash
-	newView, err := s.counts.SetNX(ctx, viewKey, voterLockTTL)
+	visitorHash := s.analyticsVisitorHash(voterID)
+	viewKey := "viewed:" + poll.ID.Hex() + ":" + visitorHash
+	legacyViewKey := "viewed:" + poll.ID.Hex() + ":" + hashVoterID(voterID)
+	legacySeen, err := s.counts.Exists(ctx, legacyViewKey)
+	if err != nil {
+		return nil, err
+	}
+	newView := false
+	if legacySeen {
+		_, err = s.counts.SetNX(ctx, viewKey, voterLockTTL)
+	} else {
+		newView, err = s.counts.SetNX(ctx, viewKey, voterLockTTL)
+	}
 	if err != nil {
 		return nil, err
 	}
 	if newView {
 		if s.views != nil {
-			if err := s.views.Create(ctx, &models.View{PollID: poll.ID, CreatedAt: time.Now().UTC(), Source: sourceFromReferer(referer), Device: deviceFromUserAgent(userAgent), Country: country, VisitorHash: s.analyticsVisitorHash(voterID)}); err != nil {
+			if err := s.views.Create(ctx, &models.View{PollID: poll.ID, CreatedAt: time.Now().UTC(), VisitorHash: visitorHash}); err != nil {
 				log.Printf("view event insert failed for poll %s: %v", poll.ID.Hex(), err)
 			} else if s.publisher != nil {
 				message, _ := json.Marshal(map[string]any{"type": "view_update", "ownerId": poll.Owner.Hex(), "pollId": poll.ID.Hex()})
@@ -116,7 +121,7 @@ func (s *PublicPollService) GetTracked(ctx context.Context, slug, voterID, refer
 		cancel()
 	}
 
-	voterKey := "voted:" + poll.ID.Hex() + ":" + voterHash
+	voterKey := "voted:" + poll.ID.Hex() + ":" + hashVoterID(voterID)
 	hasVoted, err := s.counts.Exists(ctx, voterKey)
 	if err != nil {
 		return nil, err
@@ -136,11 +141,7 @@ func (s *PublicPollService) GetTracked(ctx context.Context, slug, voterID, refer
 	return response, nil
 }
 
-func (s *PublicPollService) Vote(ctx context.Context, slug, voterID, optionID, userAgent, referer string) (*PublicPollResults, error) {
-	return s.VoteTracked(ctx, slug, voterID, optionID, userAgent, referer, "")
-}
-
-func (s *PublicPollService) VoteTracked(ctx context.Context, slug, voterID, optionID, userAgent, referer, country string) (*PublicPollResults, error) {
+func (s *PublicPollService) Vote(ctx context.Context, slug, voterID, optionID string) (*PublicPollResults, error) {
 	if strings.TrimSpace(optionID) == "" || utf8.RuneCountInString(optionID) > 64 {
 		return nil, ErrInvalidVote
 	}
@@ -171,7 +172,6 @@ func (s *PublicPollService) VoteTracked(ctx context.Context, slug, voterID, opti
 
 	createdAt := time.Now().UTC()
 	voteID := bson.NewObjectID().Hex()
-	device := deviceFromUserAgent(userAgent)
 	voterHash := hashVoterID(voterID)
 	result, accepted, err := s.counts.CastVoteWithTTL(ctx,
 		"voted:"+poll.ID.Hex()+":"+voterHash,
@@ -179,7 +179,7 @@ func (s *PublicPollService) VoteTracked(ctx context.Context, slug, voterID, opti
 		optionID,
 		optionIDs,
 		pollCountsTTL(poll),
-		redisx.VoteStreamEntry{VoteID: voteID, PollID: poll.ID.Hex(), OptionID: optionID, CreatedAt: createdAt.Format(time.RFC3339Nano), Device: device, VoterHash: voterHash, Source: sourceFromReferer(referer), Country: country, VisitorHash: s.analyticsVisitorHash(voterID)},
+		redisx.VoteStreamEntry{VoteID: voteID, PollID: poll.ID.Hex(), OptionID: optionID, CreatedAt: createdAt.Format(time.RFC3339Nano), VoterHash: voterHash},
 	)
 	if err != nil {
 		return nil, err
@@ -260,24 +260,6 @@ func (s *PublicPollService) findBySlug(ctx context.Context, slug string) (*model
 	return nil, err
 }
 
-func sourceFromReferer(referer string) string {
-	parsed, err := url.Parse(referer)
-	if err != nil || parsed.Hostname() == "" {
-		return "direct"
-	}
-	host := strings.ToLower(parsed.Hostname())
-	switch {
-	case strings.Contains(host, "whatsapp") || strings.Contains(host, "wa.me"):
-		return "whatsapp"
-	case strings.Contains(host, "instagram"):
-		return "instagram"
-	case strings.Contains(host, "twitter") || strings.Contains(host, "x.com") || strings.Contains(host, "t.co"):
-		return "twitter/x"
-	default:
-		return "other"
-	}
-}
-
 func toPublicPoll(poll *models.Poll) models.PublicPoll {
 	options := make([]models.PublicPollOption, 0, len(poll.Options))
 	for _, option := range poll.Options {
@@ -311,17 +293,6 @@ func (s *PublicPollService) analyticsVisitorHash(visitorID string) string {
 	mac := hmac.New(sha256.New, []byte(s.analyticsSalt))
 	_, _ = mac.Write([]byte(visitorID))
 	return hex.EncodeToString(mac.Sum(nil))
-}
-
-func deviceFromUserAgent(userAgent string) string {
-	ua := strings.ToLower(userAgent)
-	if strings.Contains(ua, "ipad") || strings.Contains(ua, "tablet") || strings.Contains(ua, "kindle") {
-		return "tablet"
-	}
-	if strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone") {
-		return "mobile"
-	}
-	return "desktop"
 }
 
 func retry(attempts int, operation func() error) error {

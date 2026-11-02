@@ -124,7 +124,7 @@ npm ci
 npm run dev
 ```
 
-Open [`http://localhost:5173`](http://localhost:5173). To proxy `/api` and `/ws` during local development, set `VITE_DEV_API_TARGET` in `frontend/.env` to your backend origin. Leave `VITE_API_URL` unset for the local proxy; production uses `VITE_API_URL` as its API origin.
+Open [`http://localhost:5173`](http://localhost:5173). During local development, Vite proxies `/api` and `/ws` to `http://localhost:5000` by default. Set `VITE_DEV_API_TARGET` in `frontend/.env` only if your Go API uses a different address. Leave `VITE_API_URL` unset for local development; production uses `VITE_API_URL` as its API origin.
 
 ### Environment variables
 
@@ -147,7 +147,7 @@ The frontend environment variable is:
 | Variable | Default | Purpose |
 |---|---|---|
 | `VITE_API_URL` | Fake placeholder in `.env.example` | Backend API origin embedded at frontend build time |
-| `VITE_DEV_API_TARGET` | Empty; proxy disabled | Optional local Vite proxy target for `/api` and `/ws` |
+| `VITE_DEV_API_TARGET` | `http://localhost:5000` | Local Vite proxy target for `/api` and `/ws` |
 
 ## Demo analytics data
 

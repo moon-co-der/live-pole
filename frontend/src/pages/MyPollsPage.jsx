@@ -16,7 +16,7 @@ function PollActionMenu({ poll, open, onToggle, onChoose, triggerRef }) {
   return <div className={`poll-row-menu${open ? ' is-open' : ''}`}>
     <button ref={triggerRef} className="icon-button poll-menu-trigger" type="button" aria-label={`Actions for ${poll.question}`} aria-haspopup="menu" aria-expanded={open} onClick={onToggle}><span aria-hidden="true">•••</span></button>
     {open && <><button className="menu-backdrop" type="button" aria-label="Close actions" onClick={onToggle}/><div className="poll-menu-popover" role="menu">
-      <Link role="menuitem" to={`/polls/${poll.id}`} onClick={onToggle}>View analytics</Link>
+      <Link role="menuitem" to={`/polls/${poll.slug}`} onClick={onToggle}>View analytics</Link>
       <button role="menuitem" type="button" onClick={() => onChoose('duplicate', poll)}>Duplicate</button>
       {poll.status === 'active' && <button role="menuitem" type="button" onClick={() => onChoose('close', poll)}>Close poll</button>}
       <button role="menuitem" className="menu-danger" type="button" onClick={() => onChoose('delete', poll)}>Delete poll</button>
@@ -69,7 +69,7 @@ export default function MyPollsPage() {
     const response = await apiRequest('/api/polls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: poll.question, options: poll.options.map((option) => option.text), allowMultiple: poll.allowMultiple }) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) { setError(payload.error || 'Could not duplicate the poll.'); return; }
-    navigate(`/polls/${payload.id}`, { state: { toast: 'Poll duplicated.' } });
+    navigate(`/polls/${payload.poll.slug}`, { state: { toast: 'Poll duplicated.' } });
   }
 
   async function confirmAction() {
@@ -77,8 +77,8 @@ export default function MyPollsPage() {
     const { type, poll } = pendingAction;
     setPendingAction(null);
     const response = type === 'close'
-      ? await apiRequest(`/api/polls/${poll.id}/close`, { method: 'PATCH' })
-      : await apiRequest(`/api/polls/${poll.id}`, { method: 'DELETE' });
+      ? await apiRequest(`/api/polls/${encodeURIComponent(poll.slug)}/close`, { method: 'PATCH' })
+      : await apiRequest(`/api/polls/${encodeURIComponent(poll.slug)}`, { method: 'DELETE' });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) { setError(payload.error || `Could not ${type} the poll.`); return; }
     notify(type === 'close' ? 'Poll closed.' : 'Poll deleted.');
@@ -102,7 +102,7 @@ export default function MyPollsPage() {
       {loading ? <div className="poll-list-skeleton" aria-label="Loading polls">{Array.from({ length: 3 }, (_, index) => <div className="skeleton-row" key={index}><i/><span/><b/></div>)}</div> : polls.length ? <>
         <div className="poll-table-head" aria-hidden="true"><span>Poll</span><span>Status</span><span>Votes</span><span>Engagement</span><span>Created</span><span/></div>
         <div className="poll-table">{polls.map((poll) => <article className="poll-table-row" key={poll.id}>
-          <div className="poll-row-main"><Link to={`/polls/${poll.id}`}><strong>{poll.question}</strong></Link><span className={`status-badge status-${poll.status}`}>{poll.status}</span><small>{new Date(poll.createdAt).toLocaleDateString()}</small></div>
+          <div className="poll-row-main"><Link to={`/polls/${poll.slug}`}><strong>{poll.question}</strong></Link><span className={`status-badge status-${poll.status}`}>{poll.status}</span><small>{new Date(poll.createdAt).toLocaleDateString()}</small></div>
           <span className={`status-badge poll-row-status status-${poll.status}`}>{poll.status}</span>
           <span className="poll-row-value"><strong>{Number(poll.totalVotes || 0).toLocaleString()}</strong><small>votes</small></span>
           <span className="poll-row-engagement"><strong>{engagement(poll)}%</strong><small>of views</small></span>

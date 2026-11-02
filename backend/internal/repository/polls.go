@@ -27,6 +27,7 @@ type PollStore interface {
 	Create(context.Context, *models.Poll) error
 	DeleteByID(context.Context, bson.ObjectID) error
 	FindOwned(context.Context, bson.ObjectID, bson.ObjectID) (*models.Poll, error)
+	FindOwnedBySlug(context.Context, string, bson.ObjectID) (*models.Poll, error)
 	FindByID(context.Context, bson.ObjectID) (*models.Poll, error)
 	List(context.Context, PollListFilter) ([]models.Poll, int64, error)
 	FindBySlug(context.Context, string) (*models.Poll, error)
@@ -212,6 +213,18 @@ func (r *PollRepository) CompleteExpired(ctx context.Context, id bson.ObjectID, 
 func (r *PollRepository) FindOwned(ctx context.Context, id, owner bson.ObjectID) (*models.Poll, error) {
 	var poll models.Poll
 	err := r.collection.FindOne(ctx, bson.M{"_id": id, "owner": owner}).Decode(&poll)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &poll, nil
+}
+
+func (r *PollRepository) FindOwnedBySlug(ctx context.Context, slug string, owner bson.ObjectID) (*models.Poll, error) {
+	var poll models.Poll
+	err := r.collection.FindOne(ctx, bson.M{"slug": slug, "owner": owner}).Decode(&poll)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, nil
 	}

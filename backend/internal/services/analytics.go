@@ -3,9 +3,8 @@ package services
 import (
 	"context"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -15,8 +14,7 @@ import (
 
 type AnalyticsStore interface {
 	OwnerSnapshot(context.Context, bson.ObjectID) (repository.AnalyticsSnapshot, error)
-	PollSnapshot(context.Context, bson.ObjectID, bson.ObjectID) (*models.Poll, repository.AnalyticsSnapshot, error)
-	PollSnapshotBySlug(context.Context, bson.ObjectID, string) (*models.Poll, repository.AnalyticsSnapshot, error)
+	PollSnapshot(context.Context, bson.ObjectID, string) (*models.Poll, repository.AnalyticsSnapshot, error)
 }
 
 type AnalyticsService struct{ repo AnalyticsStore }
@@ -30,11 +28,32 @@ type GrowthStat struct {
 	Growth float64 `json:"growth"`
 }
 type Overview struct {
-	TotalPolls GrowthStat `json:"totalPolls"`
-	TotalVotes GrowthStat `json:"totalVotes"`
-	TotalViews GrowthStat `json:"totalViews"`
-	Engagement GrowthStat `json:"engagement"`
-	PeriodDays int        `json:"periodDays"`
+	TotalPolls        GrowthStat          `json:"totalPolls"`
+	TotalVotes        GrowthStat          `json:"totalVotes"`
+	TotalViews        GrowthStat          `json:"totalViews"`
+	Engagement        GrowthStat          `json:"engagement"`
+	PeriodDays        int                 `json:"periodDays"`
+	OpenPolls         int64               `json:"openPolls"`
+	VotesToday        int64               `json:"votesToday"`
+	PollsWithoutVotes int64               `json:"pollsWithoutVotes"`
+	Polls             []DashboardPoll     `json:"polls"`
+	RecentActivity    []DashboardActivity `json:"recentActivity"`
+}
+
+type DashboardPoll struct {
+	ID         string            `json:"id"`
+	Slug       string            `json:"slug"`
+	Question   string            `json:"question"`
+	Status     models.PollStatus `json:"status"`
+	TotalVotes int64             `json:"totalVotes"`
+	CreatedAt  time.Time         `json:"createdAt"`
+	LastVoteAt *time.Time        `json:"lastVoteAt,omitempty"`
+}
+
+type DashboardActivity struct {
+	OptionName string    `json:"optionName"`
+	PollTitle  string    `json:"pollTitle"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 type DailyVotes struct {
 	Date  string `json:"date"`
@@ -50,6 +69,10 @@ type TopPoll struct {
 }
 
 func (s *AnalyticsService) Overview(ctx context.Context, ownerID string) (Overview, error) {
+	return s.OverviewForTimezone(ctx, ownerID, "")
+}
+
+func (s *AnalyticsService) OverviewForTimezone(ctx context.Context, ownerID, timezone string) (Overview, error) {
 	owner, err := bson.ObjectIDFromHex(ownerID)
 	if err != nil {
 		return Overview{}, ErrPollNotFound
@@ -58,11 +81,32 @@ func (s *AnalyticsService) Overview(ctx context.Context, ownerID string) (Overvi
 	if err != nil {
 		return Overview{}, err
 	}
-	now := time.Now().UTC()
+	location := time.Local
+	if timezone != "" {
+		location, err = time.LoadLocation(timezone)
+		if err != nil {
+			return Overview{}, ErrInvalidPoll
+		}
+	}
+	now := time.Now().In(location)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location).UTC()
 	current := now.AddDate(0, 0, -30)
 	previous := now.AddDate(0, 0, -60)
-	var pollsNow, pollsPrev, votesNow, votesPrev, viewsNow, viewsPrev int64
+	var pollsNow, pollsPrev, votesNow, votesPrev, viewsNow, viewsPrev, openPolls, votesToday, pollsWithoutVotes int64
+	pollVotes := make(map[string]int64, len(snapshot.Polls))
+	lastVoteAt := make(map[string]time.Time, len(snapshot.Polls))
+	pollNames := make(map[string]string, len(snapshot.Polls))
+	optionNames := make(map[string]string)
 	for _, p := range snapshot.Polls {
+		pollNames[p.ID.Hex()] = p.Question
+		for _, option := range p.Options {
+			optionNames[p.ID.Hex()+":"+option.ID] = option.Text
+		}
+	}
+	for _, p := range snapshot.Polls {
+		if p.Status == models.PollActive && (p.EndsAt == nil || p.EndsAt.After(now)) {
+			openPolls++
+		}
 		if !p.CreatedAt.Before(current) {
 			pollsNow++
 		} else if !p.CreatedAt.Before(previous) {
@@ -70,10 +114,23 @@ func (s *AnalyticsService) Overview(ctx context.Context, ownerID string) (Overvi
 		}
 	}
 	for _, v := range snapshot.Votes {
+		pollKey := v.PollID.Hex()
+		pollVotes[pollKey]++
+		if previous, exists := lastVoteAt[pollKey]; !exists || v.CreatedAt.After(previous) {
+			lastVoteAt[pollKey] = v.CreatedAt
+		}
+		if !v.CreatedAt.Before(todayStart) {
+			votesToday++
+		}
 		if !v.CreatedAt.Before(current) {
 			votesNow++
 		} else if !v.CreatedAt.Before(previous) {
 			votesPrev++
+		}
+	}
+	for _, p := range snapshot.Polls {
+		if pollVotes[p.ID.Hex()] == 0 {
+			pollsWithoutVotes++
 		}
 	}
 	for _, v := range snapshot.Views {
@@ -95,7 +152,34 @@ func (s *AnalyticsService) Overview(ctx context.Context, ownerID string) (Overvi
 	if viewsPrev > 0 {
 		previousEngagement = float64(votesPrev) / float64(viewsPrev) * 100
 	}
-	return Overview{TotalPolls: GrowthStat{float64(len(snapshot.Polls)), growth(pollsNow, pollsPrev)}, TotalVotes: GrowthStat{float64(allVotes), growth(votesNow, votesPrev)}, TotalViews: GrowthStat{float64(allViews), growth(viewsNow, viewsPrev)}, Engagement: GrowthStat{engagement, growthFloat(currentEngagement, previousEngagement)}, PeriodDays: 30}, nil
+	polls := append([]models.Poll(nil), snapshot.Polls...)
+	sort.Slice(polls, func(i, j int) bool { return polls[i].CreatedAt.After(polls[j].CreatedAt) })
+	dashboardPolls := make([]DashboardPoll, 0, min(8, len(polls)))
+	for _, p := range polls {
+		if len(dashboardPolls) == 8 {
+			break
+		}
+		status := p.Status
+		if status == models.PollActive && p.EndsAt != nil && !p.EndsAt.After(now) {
+			status = models.PollCompleted
+		}
+		var last *time.Time
+		if value, exists := lastVoteAt[p.ID.Hex()]; exists {
+			last = &value
+		}
+		dashboardPolls = append(dashboardPolls, DashboardPoll{ID: p.ID.Hex(), Slug: p.Slug, Question: p.Question, Status: status, TotalVotes: pollVotes[p.ID.Hex()], CreatedAt: p.CreatedAt, LastVoteAt: last})
+	}
+	activityVotes := append([]models.Vote(nil), snapshot.Votes...)
+	sort.Slice(activityVotes, func(i, j int) bool { return activityVotes[i].CreatedAt.After(activityVotes[j].CreatedAt) })
+	if len(activityVotes) > 5 {
+		activityVotes = activityVotes[:5]
+	}
+	activity := make([]DashboardActivity, 0, len(activityVotes))
+	for _, vote := range activityVotes {
+		pollKey := vote.PollID.Hex()
+		activity = append(activity, DashboardActivity{OptionName: optionNames[pollKey+":"+vote.OptionID], PollTitle: pollNames[pollKey], CreatedAt: vote.CreatedAt})
+	}
+	return Overview{TotalPolls: GrowthStat{float64(len(snapshot.Polls)), growth(pollsNow, pollsPrev)}, TotalVotes: GrowthStat{float64(allVotes), growth(votesNow, votesPrev)}, TotalViews: GrowthStat{float64(allViews), growth(viewsNow, viewsPrev)}, Engagement: GrowthStat{engagement, growthFloat(currentEngagement, previousEngagement)}, PeriodDays: 30, OpenPolls: openPolls, VotesToday: votesToday, PollsWithoutVotes: pollsWithoutVotes, Polls: dashboardPolls, RecentActivity: activity}, nil
 }
 
 func (s *AnalyticsService) VotesOverTime(ctx context.Context, ownerID string, days int) ([]DailyVotes, error) {
@@ -164,225 +248,98 @@ type OptionAnalytics struct {
 	Percentage float64 `json:"percentage"`
 	Winner     bool    `json:"winner"`
 }
-type SplitCount struct {
-	Label string `json:"label"`
-	Count int64  `json:"count"`
-}
 type PollAnalytics struct {
 	Poll           TopPoll           `json:"poll"`
 	TotalVotes     int64             `json:"totalVotes"`
 	Views          int64             `json:"views"`
-	UniqueViewers  int64             `json:"uniqueViewers"`
 	ConversionRate float64           `json:"conversionRate"`
 	Options        []OptionAnalytics `json:"options"`
 	VotesOverTime  []DailyVotes      `json:"votesOverTime"`
-	PeakHours      []SplitCount      `json:"peakHours"`
-	DeviceSplit    []SplitCount      `json:"deviceSplit"`
-	SourceSplit    []SplitCount      `json:"sourceSplit"`
-	CountrySplit   []SplitCount      `json:"countrySplit"`
-	PeakDays       []SplitCount      `json:"peakDays"`
-	PeakHour       string            `json:"peakHour"`
-	PeakDay        string            `json:"peakDay"`
-	VotesLastHour  int64             `json:"votesLastHour"`
-	AveragePerHour float64           `json:"averageVotesPerHour"`
-	Activity       []VoteActivity    `json:"activity"`
+	RecentVotes    []RecentVote      `json:"recentVotes"`
 }
 
-type VoteActivity struct {
-	Option string    `json:"option"`
-	At     time.Time `json:"at"`
-}
-type VoteTimelineRow struct {
-	At                              time.Time
-	Option, Source, Device, Country string
+type RecentVote struct {
+	OptionName string    `json:"optionName"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
-func (s *AnalyticsService) Poll(ctx context.Context, ownerID, pollID string) (PollAnalytics, error) {
-	return s.PollInterval(ctx, ownerID, pollID, "day")
-}
-
-func (s *AnalyticsService) PollInterval(ctx context.Context, ownerID, pollID, interval string) (PollAnalytics, error) {
+func (s *AnalyticsService) Poll(ctx context.Context, ownerID, pollKey string) (PollAnalytics, error) {
 	owner, err := bson.ObjectIDFromHex(ownerID)
 	if err != nil {
 		return PollAnalytics{}, ErrPollNotFound
 	}
-	id, err := bson.ObjectIDFromHex(pollID)
-	if err != nil {
-		return PollAnalytics{}, ErrPollNotFound
-	}
-	if interval != "minute" && interval != "hour" && interval != "day" {
-		return PollAnalytics{}, ErrInvalidPoll
-	}
-	poll, snapshot, err := s.repo.PollSnapshot(ctx, owner, id)
+	poll, snapshot, err := s.repo.PollSnapshot(ctx, owner, pollKey)
 	if err != nil {
 		return PollAnalytics{}, err
 	}
 	if poll == nil {
 		return PollAnalytics{}, ErrPollNotFound
 	}
-	return buildPollAnalytics(poll, snapshot, interval), nil
+	return buildPollAnalytics(poll, snapshot), nil
 }
 
-func (s *AnalyticsService) PollBySlug(ctx context.Context, ownerID, slug, interval string) (PollAnalytics, error) {
-	owner, err := bson.ObjectIDFromHex(ownerID)
-	if err != nil {
-		return PollAnalytics{}, ErrPollNotFound
-	}
-	if interval != "minute" && interval != "hour" && interval != "day" {
-		return PollAnalytics{}, ErrInvalidPoll
-	}
-	poll, snapshot, err := s.repo.PollSnapshotBySlug(ctx, owner, slug)
-	if err != nil {
-		return PollAnalytics{}, err
-	}
-	if poll == nil {
-		return PollAnalytics{}, ErrPollNotFound
-	}
-	return buildPollAnalytics(poll, snapshot, interval), nil
-}
-
-func (s *AnalyticsService) VoteTimelineBySlug(ctx context.Context, ownerID, slug string) ([]VoteTimelineRow, error) {
-	owner, err := bson.ObjectIDFromHex(ownerID)
-	if err != nil {
-		return nil, ErrPollNotFound
-	}
-	poll, snapshot, err := s.repo.PollSnapshotBySlug(ctx, owner, slug)
-	if err != nil {
-		return nil, err
-	}
-	if poll == nil {
-		return nil, ErrPollNotFound
-	}
-	options := map[string]string{}
-	for _, option := range poll.Options {
-		options[option.ID] = option.Text
-	}
-	rows := make([]VoteTimelineRow, 0, len(snapshot.Votes))
-	for _, vote := range snapshot.Votes {
-		rows = append(rows, VoteTimelineRow{At: vote.CreatedAt, Option: nonempty(options[vote.OptionID], "Unknown option"), Source: nonempty(vote.Source, "direct"), Device: nonempty(vote.Device, "unknown"), Country: nonempty(vote.Country, "Unknown")})
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].At.Before(rows[j].At) })
-	return rows, nil
-}
-
-func buildPollAnalytics(poll *models.Poll, snapshot repository.AnalyticsSnapshot, interval string) PollAnalytics {
-	result := PollAnalytics{Poll: TopPoll{ID: poll.ID.Hex(), Slug: poll.Slug, Question: poll.Question, Status: poll.Status}, Options: make([]OptionAnalytics, 0, len(poll.Options)), VotesOverTime: []DailyVotes{}, PeakHours: []SplitCount{}, DeviceSplit: []SplitCount{}, SourceSplit: []SplitCount{}, CountrySplit: []SplitCount{}, PeakDays: []SplitCount{}, Activity: []VoteActivity{}}
+func buildPollAnalytics(poll *models.Poll, snapshot repository.AnalyticsSnapshot) PollAnalytics {
+	result := PollAnalytics{Poll: TopPoll{ID: poll.ID.Hex(), Slug: poll.Slug, Question: poll.Question, Status: poll.Status}, Options: make([]OptionAnalytics, 0, len(poll.Options)), VotesOverTime: make([]DailyVotes, 0, 24), RecentVotes: make([]RecentVote, 0, 5)}
 	counts := map[string]int64{}
-	devices, sources, hours, weekdays, countries := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
-	buckets := map[string]int64{}
-	optionText := map[string]string{}
-	for _, option := range poll.Options {
-		optionText[option.ID] = option.Text
-	}
 	var maxVotes int64
-	now := time.Now().UTC()
 	for _, vote := range snapshot.Votes {
 		counts[vote.OptionID]++
 		if counts[vote.OptionID] > maxVotes {
 			maxVotes = counts[vote.OptionID]
 		}
-		devices[analyticsDevice(vote.Device)]++
-		sources[analyticsSource(vote.Source)]++
-		hour := vote.CreatedAt.UTC().Hour()
-		hours[itoa(hour)]++
-		weekdays[vote.CreatedAt.UTC().Weekday().String()]++
-		countries[nonempty(vote.Country, "Unknown")]++
-		switch interval {
-		case "minute":
-			if vote.CreatedAt.After(now.Add(-time.Hour)) {
-				buckets[vote.CreatedAt.UTC().Format("15:04")]++
-			}
-		case "hour":
-			if vote.CreatedAt.After(now.Add(-24 * time.Hour)) {
-				buckets[vote.CreatedAt.UTC().Format("Jan 02 15:00")]++
-			}
-		default:
-			buckets[vote.CreatedAt.UTC().Format("2006-01-02")]++
-		}
-		if vote.CreatedAt.After(now.Add(-time.Hour)) {
-			result.VotesLastHour++
-		}
-		result.Activity = append(result.Activity, VoteActivity{Option: nonempty(optionText[vote.OptionID], "Option"), At: vote.CreatedAt})
-	}
-	sort.Slice(result.Activity, func(i, j int) bool { return result.Activity[i].At.After(result.Activity[j].At) })
-	if len(result.Activity) > 20 {
-		result.Activity = result.Activity[:20]
 	}
 	result.TotalVotes = int64(len(snapshot.Votes))
 	result.Views = int64(len(snapshot.Views))
-	seenVisitors := map[string]struct{}{}
-	for index, view := range snapshot.Views {
-		key := view.VisitorHash
-		if key == "" {
-			key = "legacy-view-" + strconv.Itoa(index)
-		}
-		seenVisitors[key] = struct{}{}
-	}
-	result.UniqueViewers = int64(len(seenVisitors))
 	result.Poll.TotalVotes = result.TotalVotes
 	result.Poll.Views = result.Views
 	if result.Views > 0 {
 		result.ConversionRate = float64(result.TotalVotes) / float64(result.Views) * 100
 	}
-	hoursRunning := now.Sub(poll.CreatedAt).Hours()
-	if hoursRunning < 1 {
-		hoursRunning = 1
+	result.VotesOverTime = hourlyVotes(snapshot.Votes, time.Now().UTC())
+	optionNames := make(map[string]string, len(poll.Options))
+	for _, option := range poll.Options {
+		optionNames[option.ID] = option.Text
 	}
-	result.AveragePerHour = float64(result.TotalVotes) / hoursRunning
+	recent := append([]models.Vote(nil), snapshot.Votes...)
+	sort.Slice(recent, func(i, j int) bool { return recent[i].CreatedAt.After(recent[j].CreatedAt) })
+	if len(recent) > 5 {
+		recent = recent[:5]
+	}
+	for _, vote := range recent {
+		result.RecentVotes = append(result.RecentVotes, RecentVote{OptionName: optionNames[vote.OptionID], CreatedAt: vote.CreatedAt})
+	}
+	leaders := 0
+	for _, option := range poll.Options {
+		if counts[option.ID] == maxVotes && maxVotes > 0 {
+			leaders++
+		}
+	}
 	for _, option := range poll.Options {
 		v := counts[option.ID]
 		pct := float64(0)
 		if result.TotalVotes > 0 {
 			pct = float64(v) / float64(result.TotalVotes) * 100
 		}
-		result.Options = append(result.Options, OptionAnalytics{option.ID, option.Text, v, pct, v == maxVotes && maxVotes > 0})
+		result.Options = append(result.Options, OptionAnalytics{option.ID, option.Text, v, pct, maxVotes > 0 && v == maxVotes && leaders == 1})
 	}
-	for key, count := range buckets {
-		result.VotesOverTime = append(result.VotesOverTime, DailyVotes{key, count})
-	}
-	sort.Slice(result.VotesOverTime, func(i, j int) bool { return result.VotesOverTime[i].Date < result.VotesOverTime[j].Date })
-	result.PeakHour = busiest(hours, 24, func(i int) string { return strconv.Itoa(i) }, "hour")
-	result.PeakDay = busiestNamed(weekdays, []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"})
-	if result.TotalVotes > 0 {
-		result.PeakHours = make([]SplitCount, 0, 24)
-		for hour := 0; hour < 24; hour++ {
-			label := strconv.Itoa(hour)
-			result.PeakHours = append(result.PeakHours, SplitCount{Label: label, Count: hours[label]})
-		}
-	}
-	result.DeviceSplit = mapSplit(devices)
-	result.SourceSplit = mapSplit(sources)
-	result.CountrySplit = mapSplit(countries)
-	result.PeakDays = mapSplit(weekdays)
 	return result
 }
 
-func busiest(values map[string]int64, count int, label func(int) string, unit string) string {
-	var best string
-	var max int64
-	for i := 0; i < count; i++ {
-		key := label(i)
-		if values[key] > max {
-			max, best = values[key], key
+func hourlyVotes(votes []models.Vote, now time.Time) []DailyVotes {
+	start := now.Truncate(time.Hour).Add(-23 * time.Hour)
+	counts := make(map[time.Time]int64, 24)
+	for _, vote := range votes {
+		hour := vote.CreatedAt.UTC().Truncate(time.Hour)
+		if !hour.Before(start) && !hour.After(now.Truncate(time.Hour)) {
+			counts[hour]++
 		}
 	}
-	if best == "" {
-		return "No votes yet"
+	series := make([]DailyVotes, 0, 24)
+	for i := 0; i < 24; i++ {
+		hour := start.Add(time.Duration(i) * time.Hour)
+		series = append(series, DailyVotes{Date: hour.Format(time.RFC3339), Votes: counts[hour]})
 	}
-	if unit == "hour" {
-		return best + ":00 UTC"
-	}
-	return best
-}
-func busiestNamed(values map[string]int64, names []string) string {
-	best := "No votes yet"
-	var max int64
-	for _, name := range names {
-		if values[name] > max {
-			max, best = values[name], name
-		}
-	}
-	return best
+	return series
 }
 
 func growth(current, previous int64) float64 { return growthFloat(float64(current), float64(previous)) }
@@ -395,41 +352,3 @@ func growthFloat(current, previous float64) float64 {
 	}
 	return (current - previous) / previous * 100
 }
-func mapSplit(values map[string]int64) []SplitCount {
-	out := make([]SplitCount, 0, len(values))
-	for k, v := range values {
-		out = append(out, SplitCount{k, v})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
-	return out
-}
-func nonempty(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-	return value
-}
-func analyticsDevice(value string) string {
-	switch strings.ToLower(value) {
-	case "mobile", "desktop", "tablet":
-		return strings.ToLower(value)
-	default:
-		return "unknown"
-	}
-}
-func analyticsSource(value string) string {
-	host := strings.ToLower(strings.TrimSpace(value))
-	switch {
-	case host == "", host == "direct":
-		return "direct"
-	case strings.Contains(host, "whatsapp") || strings.Contains(host, "wa.me"):
-		return "whatsapp"
-	case strings.Contains(host, "instagram"):
-		return "instagram"
-	case strings.Contains(host, "twitter") || strings.Contains(host, "x.com") || strings.Contains(host, "t.co") || host == "twitter/x":
-		return "twitter/x"
-	default:
-		return "other"
-	}
-}
-func itoa(value int) string { return strconv.Itoa(value) }

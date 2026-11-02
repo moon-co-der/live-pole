@@ -2,35 +2,42 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../api/client.js';
 import OwnerNav from '../components/OwnerNav.jsx';
+import AnalyticsLineChart from '../components/AnalyticsLineChart.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import useDashboardLive from '../hooks/useDashboardLive.js';
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-
-const donutCircumference = 2 * Math.PI * 40;
+import useRelativeTimeClock from '../hooks/useRelativeTimeClock.js';
+import formatRelativeTime from '../utils/formatRelativeTime.js';
 
 export default function PollAnalyticsPage() {
-  const { id, slug } = useParams();
-  const publicPath = Boolean(slug);
+  const { slug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [toast, setToast] = useState(() => location.state?.toast || '');
   const [pendingAction, setPendingAction] = useState('');
-  const [interval, setInterval] = useState('day');
+  const clock = useRelativeTimeClock();
+
   const load = useCallback(async () => {
     try {
-      const endpoint = publicPath
-        ? `/api/polls/by-slug/${encodeURIComponent(slug)}/analytics?interval=${interval}`
-        : `/api/polls/${encodeURIComponent(id)}/analytics?interval=${interval}`;
-      const response = await apiRequest(endpoint);
+      const response = await apiRequest(`/api/polls/${encodeURIComponent(slug)}/analytics`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Unable to load analytics.');
-      setData(payload); setError('');
-    } catch (loadError) { setError(loadError.message || 'Unable to load analytics.'); }
-  }, [id, publicPath, slug, interval]);
+      setData(payload);
+      setError('');
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load analytics.');
+    }
+  }, [slug]);
+
   const liveStatus = useDashboardLive(load);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const canonicalSlug = data?.poll?.slug;
+    if (canonicalSlug && canonicalSlug !== slug) {
+      navigate(`/polls/${encodeURIComponent(canonicalSlug)}`, { replace: true, state: location.state });
+    }
+  }, [data?.poll?.slug, slug, navigate, location.state]);
   useEffect(() => {
     if (liveStatus === 'live') return undefined;
     const timer = window.setInterval(load, 4000);
@@ -41,29 +48,20 @@ export default function PollAnalyticsPage() {
     const timer = window.setTimeout(() => setToast(''), 3000);
     return () => window.clearTimeout(timer);
   }, [location.key, location.state?.toast]);
-  const total = data?.totalVotes || 0;
+
+  const total = Number(data?.totalVotes || 0);
+  const views = Number(data?.views || 0);
   const shareLink = data?.poll?.slug ? `${window.location.origin}/p/${data.poll.slug}` : '';
-  const donutSegments = [];
-  if (total && data?.options) {
-    let passed = 0;
-    for (const [index, option] of data.options.entries()) {
-      const portion = Number(option.votes || 0) / total;
-      donutSegments.push({
-        index: index % 2,
-        length: donutCircumference * portion,
-        offset: -donutCircumference * passed,
-      });
-      passed += portion;
-    }
-  }
+  const recentVotes = Array.isArray(data?.recentVotes) ? data.recentVotes.slice(0, 5) : [];
+
   const cancelConfirmation = useCallback(() => setPendingAction(''), []);
 
   async function performAction() {
     const action = pendingAction;
     setPendingAction('');
     const response = action === 'close'
-      ? await apiRequest(`/api/polls/${id}/close`, { method: 'PATCH' })
-      : await apiRequest(`/api/polls/${id}`, { method: 'DELETE' });
+    ? await apiRequest(`/api/polls/${encodeURIComponent(data?.poll?.slug || slug)}/close`, { method: 'PATCH' })
+      : await apiRequest(`/api/polls/${encodeURIComponent(data?.poll?.slug || slug)}`, { method: 'DELETE' });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) { setError(payload.error || `Unable to ${action} poll.`); return; }
     if (action === 'delete') { navigate('/polls', { replace: true }); return; }
@@ -73,42 +71,52 @@ export default function PollAnalyticsPage() {
   }
 
   async function copyLink() {
-    try { await navigator.clipboard.writeText(shareLink); setToast('Share link copied.'); window.setTimeout(() => setToast(''), 3000); }
-    catch { setError('Could not copy the share link.'); }
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setToast('Share link copied.');
+      window.setTimeout(() => setToast(''), 3000);
+    } catch { setError('Could not copy the share link.'); }
   }
 
   return <div className="owner-app"><OwnerNav/><main className="owner-main poll-analytics-main">
-    <Link className="owner-back-link" to={publicPath ? `/p/${slug}` : '/polls'}>{publicPath ? '← Back to poll' : '← Back to polls'}</Link>
+    <Link className="owner-back-link" to="/polls">← Back to polls</Link>
     {error && <div className="inline-error" role="alert"><span>{error}</span><button className="button button-secondary" type="button" onClick={() => { setError(''); load(); }}>Retry</button></div>}
     {!data && !error && <div className="analytics-skeleton" aria-label="Loading analytics"><div/><div/><div/><div/></div>}
     {data && <>
-      <section className="poll-analytics-header"><div className="analytics-heading-copy"><p className="eyebrow">POLL ANALYTICS</p><h1>{data.poll.question}</h1><div className="poll-analytics-share"><span className={`status-badge status-${data.poll.status}`}>{data.poll.status}</span><code>{shareLink}</code><button className="button button-secondary" type="button" onClick={copyLink}>Copy link</button></div></div>{!publicPath && <div className="poll-header-actions">{data.poll.status === 'active' && <button className="button button-secondary" type="button" onClick={() => setPendingAction('close')}>Close poll</button>}<button className="button button-danger" type="button" onClick={() => setPendingAction('delete')}>Delete</button></div>}</section>
-      <div className="analytics-toolbar"><span>Live analytics · refreshes automatically</span><button className="button button-secondary" type="button" onClick={exportCSV}>Export CSV</button></div>
+      <section className="poll-analytics-header">
+        <div className="analytics-heading-copy">
+          <p className="eyebrow">POLL ANALYTICS</p><h1>{data.poll.question}</h1>
+          <div className="poll-analytics-share"><span className={`status-badge status-${data.poll.status}`}>{data.poll.status}</span><code>{shareLink}</code><button className="button button-secondary" type="button" onClick={copyLink}>Copy link</button></div>
+        </div>
+        <div className="poll-header-actions">{data.poll.status === 'active' && <button className="button button-secondary" type="button" onClick={() => setPendingAction('close')}>Close poll</button>}<button className="button button-danger" type="button" onClick={() => setPendingAction('delete')}>Delete</button></div>
+      </section>
       <div className="analytics-live-row"><span className={`live-badge live-${liveStatus}`}><i/> {liveStatus === 'live' ? 'Live' : liveStatus === 'reconnecting' ? 'Reconnecting' : 'Connecting'}</span></div>
-      <section className="analytics-stat-grid analytics-stat-grid-live" aria-label="Poll statistics"><article><span>Total votes</span><strong>{total.toLocaleString()}</strong></article><article><span>Unique viewers</span><strong>{Number(data.uniqueViewers ?? data.views ?? 0).toLocaleString()}</strong></article><article><span>Conversion rate</span><strong>{Math.round(Number(data.conversionRate || 0))}%</strong></article><article><span>Votes in last hour</span><strong>{Number(data.votesLastHour || 0).toLocaleString()}</strong></article><article><span>Average votes / hour</span><strong>{Number(data.averageVotesPerHour || 0).toFixed(1)}</strong></article></section>
-      {total === 0 ? <section className="dashboard-card poll-no-votes"><span aria-hidden="true">◉</span><h2>No votes yet</h2><p>Share your poll to start collecting responses. Your analytics will appear here.</p><button className="button button-secondary" type="button" onClick={copyLink}>Copy share link</button></section> : <>
-      <div className="analytics-grid analytics-results-grid"><section className="dashboard-card"><div className="section-heading"><div><h2>Results by option</h2><p>{total.toLocaleString()} total responses</p></div></div><div className="results-overview"><div className="results-donut" role="img" aria-label="Vote distribution by option"><svg viewBox="0 0 100 100" aria-hidden="true"><circle className="donut-track" cx="50" cy="50" r="40"/>{donutSegments.map((segment, index) => <circle className={`donut-segment color-${segment.index}`} key={`${segment.index}-${index}`} cx="50" cy="50" r="40" transform="rotate(-90 50 50)" style={{ strokeDasharray: `${segment.length} ${donutCircumference}`, strokeDashoffset: segment.offset }}/>)}</svg><div className="donut-center"><strong>{total.toLocaleString()}</strong><span>votes</span></div></div><div className="results-legend">{data.options.map((option, index) => <div className={`results-legend-row${option.winner ? ' is-winner' : ''}`} key={option.id}><i className={`legend-dot color-${index % 2}`}/><div className="results-option-copy"><div><span>{option.text}{option.winner && <b className="winner-label">Leading</b>}</span><strong>{Number(option.votes || 0).toLocaleString()} <small>{Math.round(Number(option.percentage || 0))}%</small></strong></div><i className="results-track"><b className={`data-bar color-${index % 2}`} style={{ width: `${option.percentage}%` }}/></i></div></div>)}</div></div></section>
-          <section className="dashboard-card"><div className="section-heading"><div><h2>Votes over time</h2><p>Live response timeline</p></div><div className="analytics-intervals" role="group" aria-label="Chart interval">{['minute','hour','day'].map((item) => <button key={item} type="button" aria-pressed={interval === item} className={interval === item ? 'is-active' : ''} onClick={() => setInterval(item)}>{item}</button>)}</div></div><div className="poll-line-chart"><ResponsiveContainer width="100%" height={280}><LineChart data={data.votesOverTime} margin={{ top: 10, right: 12, bottom: 4, left: -18 }}><CartesianGrid strokeDasharray="3 3" stroke="var(--grid)"/><XAxis dataKey="date" tick={{ fill: 'var(--muted)', fontSize: 11 }} minTickGap={24}/><YAxis allowDecimals={false} tick={{ fill: 'var(--muted)', fontSize: 11 }}/><Tooltip/><Line type="monotone" dataKey="votes" stroke="var(--blue)" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }}/></LineChart></ResponsiveContainer></div></section></div>
-        <div className="analytics-grid"><section className="dashboard-card"><div className="section-heading"><div><h2>Peak voting time</h2><p>Times shown in UTC</p></div></div><div className="peak-cards"><article><span>Busiest hour</span><strong>{data.peakHour || 'No votes yet'}</strong></article><article><span>Busiest day</span><strong>{data.peakDay || 'No votes yet'}</strong></article></div><h3>Hourly activity</h3><div className="hour-bars">{Array.from({ length: 24 }, (_, hour) => { const count = data.peakHours.find((item) => Number(item.label) === hour)?.count || 0; const max = Math.max(1, ...data.peakHours.map((item) => item.count)); return <div className="hour-bar" key={hour} title={`${hour}:00 · ${count} votes`}><i style={{ '--bar-height': `${Math.max(count ? 8 : 2, count / max * 100)}%` }}/><span>{hour % 3 === 0 ? String(hour).padStart(2, '0') : ''}</span></div>; })}</div></section>
-          <section className="dashboard-card split-card"><div className="section-heading"><div><h2>Traffic & devices</h2><p>Anonymous response breakdown</p></div></div><h3>Devices</h3>{data.deviceSplit.map((item) => <SplitBar key={item.label} item={item} total={total}/>)}<h3 className="split-title-spaced">Traffic source</h3>{data.sourceSplit.map((item) => <SplitBar key={item.label} item={item} total={total}/>)}</section></div>
-        <div className="analytics-grid"><section className="dashboard-card"><div className="section-heading"><div><h2>Countries</h2><p>Approximate country from IP lookup</p></div></div>{data.countrySplit.length ? data.countrySplit.map((item) => <SplitBar key={item.label} item={item} total={total}/>) : <p className="poll-muted">Country data will appear as new responses arrive.</p>}</section><section className="dashboard-card"><div className="section-heading"><div><h2>Live activity</h2><p>Recent anonymous responses</p></div></div>{data.activity?.length ? <ol className="analytics-activity">{data.activity.map((item, index) => <li key={`${item.at}-${index}`}><span>Someone voted for <strong>{item.option}</strong></span><time dateTime={item.at}>{timeAgo(item.at)}</time></li>)}</ol> : <p className="poll-muted">No activity yet.</p>}</section></div>
-      </>}
+      <div className="analytics-grid poll-analytics-columns">
+        <div className="poll-analytics-stack">
+          <section className="dashboard-card">
+            <div className="section-heading"><div><h2>Engagement</h2><p>Poll activity at a glance</p></div></div>
+            <div className="poll-engagement-metrics" aria-label="Poll engagement statistics">
+              <article><strong>{views.toLocaleString()}</strong><span>Views</span></article>
+              <article><strong>{total.toLocaleString()}</strong><span>Votes</span></article>
+              <article><strong>{views ? `${Math.round(Number(data.conversionRate || 0))}%` : '—'}</strong><span>Vote rate</span></article>
+            </div>
+          </section>
+          <section className="dashboard-card">
+            <div className="section-heading"><div><h2>Recent votes</h2><p>Latest responses</p></div></div>
+            {recentVotes.length ? <ul className="poll-recent-votes">{recentVotes.map((vote, index) => <li key={`${vote.createdAt}-${index}`}><span>{vote.optionName}</span><time dateTime={vote.createdAt}>{formatRelativeTime(vote.createdAt, clock)}</time></li>)}</ul> : <p className="poll-recent-empty">No votes yet</p>}
+          </section>
+        </div>
+        <div className="poll-analytics-stack">
+          <section className="dashboard-card">
+            <div className="section-heading"><div><h2>Option breakdown</h2><p>{total.toLocaleString()} total votes</p></div></div>
+            <div className="results-legend">{data.options.map((option, index) => <div className="results-legend-row" key={option.id}><i className={`legend-dot color-${index % 6}`}/><div className="results-option-copy"><div><span>{option.text}</span><strong>{Number(option.votes || 0).toLocaleString()} <small>{Math.round(Number(option.percentage || 0))}%</small></strong></div><i className="results-track"><b className={`data-bar color-${index % 6}`} style={{ width: `${Math.min(100, Number(option.percentage || 0))}%` }}/></i></div></div>)}</div>
+          </section>
+          {total >= 10
+            ? <section className="dashboard-card"><div className="section-heading"><div><h2>Votes over time</h2><p>Hourly votes · last 24 hours (UTC)</p></div></div><AnalyticsLineChart data={data.votesOverTime} height={280}/></section>
+            : <section className="dashboard-card poll-trend-empty"><div className="section-heading"><div><h2>Votes over time</h2></div></div><p>Not enough votes yet for a trend</p></section>}
+        </div>
+      </div>
       {toast && <div className="owner-toast" role="status">{toast}</div>}
     </>}
   </main>{pendingAction && <ConfirmDialog title={pendingAction === 'close' ? 'Close this poll?' : 'Delete this poll?'} message={pendingAction === 'close' ? 'The poll will stop accepting new responses.' : 'The poll, its votes, and analytics will be permanently deleted.'} confirmLabel={pendingAction === 'close' ? 'Close poll' : 'Delete poll'} danger={pendingAction === 'delete'} onCancel={cancelConfirmation} onConfirm={performAction}/>}</div>;
-
-  async function exportCSV() {
-    try {
-      const response = await apiRequest(`/api/polls/by-slug/${encodeURIComponent(slug || data?.poll?.slug || '')}/analytics.csv`);
-      if (!response.ok) throw new Error('Unable to export vote timeline.');
-      const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `livepoll-${slug || id}-votes.csv`; link.click(); URL.revokeObjectURL(url);
-    } catch (exportError) { setError(exportError.message || 'Unable to export vote timeline.'); }
-  }
 }
-
-function SplitBar({ item, total }) {
-  const percent = total ? Math.round(item.count / total * 100) : 0;
-  return <div className="split-bar-row"><div><span>{item.label}</span><strong>{Number(item.count || 0).toLocaleString()} <small>{percent}%</small></strong></div><i><b style={{ width: `${percent}%` }}/></i></div>;
-}
-
-function timeAgo(value) { const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return `${seconds}s ago`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; return `${Math.floor(seconds / 3600)}h ago`; }

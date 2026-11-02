@@ -1,28 +1,38 @@
-# LivePoll
+# Run LivePoll locally
 
-LivePoll is a small, responsive polling app. Poll creation and voting use Express APIs; Socket.IO broadcasts each accepted vote to all viewers in that poll's room. Polls and vote totals are stored in `data/polls.json` and survive server restarts.
+This React app signs in through the Go API in `backend/`. The root `npm start` command runs an older Express demo and does not provide the sign-in API.
 
-## Run locally
+## 1. Start MongoDB and Redis
 
-1. Install Node.js 20 or newer.
-2. From this project folder, run `npm install`.
-3. Run `npm start`.
-4. Open [http://localhost:3000/create](http://localhost:3000/create), create a question with 2–6 options, and share the generated poll link.
+Start Docker Desktop, then from the project root:
 
-To run with automatic server restarts during development, use `npm run dev`.
+```powershell
+docker compose up -d
+```
 
-## Deploy
+If you do not use Docker, run local MongoDB on port `27017` and Redis on port `6379`.
 
-Create a free Render **Web Service** from this repository. Set the build command to `npm install`, the start command to `npm start`, and the health check path to `/health`. The service listens on Render's `PORT` automatically. Railway can run the same commands.
+## 2. Start the Go backend
 
-The app uses a JSON file for simple durable local storage. Free Render and Railway instances may use ephemeral filesystems, so votes can be lost when an instance is replaced or restarted. For durable hosted polls, attach persistent storage at `/var/data` and set `DATA_DIR=/var/data`, or use a managed database. Render persistent disks require a paid service plan.
+`backend/.env` should point to the local database services and use `CLIENT_URL=http://localhost:5173`. From the project root:
 
-## Real-time flow
+```powershell
+cd backend
+go run ./cmd/server
+```
 
-1. A browser joins a Socket.IO room named for its poll and receives the latest count snapshot.
-2. A vote request sends the selected option and the browser's HttpOnly voter cookie to Express.
-3. The server checks that the poll is open, the option is valid, and that this cookie has not already voted.
-4. It records the vote to the JSON store, then broadcasts the complete updated results to that poll's Socket.IO room.
-5. Every connected browser animates its bars and counts; reconnecting browsers automatically rejoin and receive a fresh snapshot.
+The API should be available at `http://localhost:5000/api/health`.
 
-The cookie prevents repeat votes from the same browser profile. It is a lightweight poll integrity check, not identity verification.
+## 3. Start the React frontend
+
+Open another terminal from the project root:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The development server proxies API and WebSocket requests to `http://localhost:5000` by default. Set `VITE_DEV_API_TARGET` in `frontend/.env` if your backend uses a different address.
+
+Create an account at `/signup`, then sign in at `/login`. See `README.md` for environment setup and deployment details.

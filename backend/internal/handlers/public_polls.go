@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"live-polling/internal/middleware"
 	"live-polling/internal/services"
 )
 
@@ -22,17 +21,12 @@ var voterUUIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]
 var errInvalidVoterID = errors.New("X-Voter-Id must be a UUID")
 
 type PublicPollHandler struct {
-	polls             *services.PublicPollService
-	cookieSecure      bool
-	trustProxyHeaders bool
+	polls        *services.PublicPollService
+	cookieSecure bool
 }
 
-func NewPublicPollHandler(polls *services.PublicPollService, cookieSecure bool, trustProxy ...bool) *PublicPollHandler {
-	trust := false
-	if len(trustProxy) > 0 {
-		trust = trustProxy[0]
-	}
-	return &PublicPollHandler{polls: polls, cookieSecure: cookieSecure, trustProxyHeaders: trust}
+func NewPublicPollHandler(polls *services.PublicPollService, cookieSecure bool) *PublicPollHandler {
+	return &PublicPollHandler{polls: polls, cookieSecure: cookieSecure}
 }
 
 func (h *PublicPollHandler) Get(c *gin.Context) {
@@ -45,9 +39,7 @@ func (h *PublicPollHandler) Get(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "Unable to initialize this voting session.")
 		return
 	}
-	country := services.CountryFromIP(c.Request.Context(), middleware.ClientIP(c, h.trustProxyHeaders))
-	referrer := requestReferrer(c)
-	poll, err := h.polls.GetTracked(c.Request.Context(), c.Param("slug"), voterID, referrer, c.GetHeader("User-Agent"), country)
+	poll, err := h.polls.Get(c.Request.Context(), c.Param("slug"), voterID)
 	if errors.Is(err, services.ErrPublicPollNotFound) {
 		writeError(c, http.StatusNotFound, "Poll not found.")
 		return
@@ -80,9 +72,7 @@ func (h *PublicPollHandler) Vote(c *gin.Context) {
 		return
 	}
 	input.OptionID = strings.TrimSpace(input.OptionID)
-	country := services.CountryFromIP(c.Request.Context(), middleware.ClientIP(c, h.trustProxyHeaders))
-	referrer := requestReferrer(c)
-	results, err := h.polls.VoteTracked(c.Request.Context(), c.Param("slug"), voterID, input.OptionID, c.GetHeader("User-Agent"), referrer, country)
+	results, err := h.polls.Vote(c.Request.Context(), c.Param("slug"), voterID, input.OptionID)
 	switch {
 	case errors.Is(err, services.ErrPublicPollNotFound):
 		writeError(c, http.StatusNotFound, "Poll not found.")
@@ -97,13 +87,6 @@ func (h *PublicPollHandler) Vote(c *gin.Context) {
 	default:
 		c.JSON(http.StatusOK, gin.H{"results": results})
 	}
-}
-
-func requestReferrer(c *gin.Context) string {
-	if _, supplied := c.Request.Header[http.CanonicalHeaderKey("X-Poll-Referrer")]; supplied {
-		return c.GetHeader("X-Poll-Referrer")
-	}
-	return c.GetHeader("Referer")
 }
 
 func (h *PublicPollHandler) Results(c *gin.Context) {

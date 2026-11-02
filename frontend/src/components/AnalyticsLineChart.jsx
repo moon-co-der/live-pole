@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
 function shortDate(value) {
+  if (value?.includes('T')) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', timeZone: 'UTC' }).format(date);
+  }
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date);
 }
@@ -54,7 +58,7 @@ export default function AnalyticsLineChart({ data = [], height = 280 }) {
         <path d={path} className="chart-line"/>
         {values.map((value, index) => <circle className="chart-point" key={data[index].date} cx={x(index)} cy={y(value)} r="5" tabIndex="0" aria-label={`${shortDate(data[index].date)} · ${value} ${value === 1 ? 'vote' : 'votes'}`} onPointerEnter={() => setActiveIndex(index)} onFocus={() => setActiveIndex(index)} onBlur={() => setActiveIndex(-1)}><title>{shortDate(data[index].date)} · {value} {value === 1 ? 'vote' : 'votes'}</title></circle>)}
         {point && <g className="chart-tooltip" pointerEvents="none"><rect x={tooltipX} y={tooltipY} width="152" height="30" rx="6"/><text x={tooltipX + 10} y={tooltipY + 19}>{shortDate(point.date)} · {values[activeIndex]} {values[activeIndex] === 1 ? 'vote' : 'votes'}</text></g>}
-        {data.map((item, index) => <text className={`chart-x-label${index % 2 === 1 ? ' is-alternate' : ''}`} key={`date-${item.date}`} x={x(index)} y={chartHeight - 8} textAnchor="middle">{shortDate(item.date)}</text>)}
+        {data.map((item, index) => data.length > 12 && index % 3 !== 0 ? null : <text className={`chart-x-label${index % 2 === 1 ? ' is-alternate' : ''}`} key={`date-${item.date}`} x={x(index)} y={chartHeight - 8} textAnchor="middle">{shortDate(item.date)}</text>)}
       </svg>
     </div>
   );

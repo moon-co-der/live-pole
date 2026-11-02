@@ -6,19 +6,66 @@ import OwnerNav from '../components/OwnerNav.jsx';
 
 const initialOptions = ['', ''];
 
+function toLocalDateTimeValue(date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function localDateValue(date) {
+  return toLocalDateTimeValue(date).slice(0, 10);
+}
+
+function formatLocalEndTime(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  const dateParts = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(date);
+  const part = (type) => dateParts.find((item) => item.type === type)?.value;
+  const parts = `${part('weekday')}, ${part('day')} ${part('month')} ${part('year')}`;
+  const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date);
+  const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(date).find((part) => part.type === 'timeZoneName')?.value;
+  return `Closes ${parts} at ${time}${zone ? ` ${zone}` : ''}`;
+}
+
 export default function CreatePollPage() {
   const navigate = useNavigate();
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(initialOptions);
   const [allowMultiple, setAllowMultiple] = useState(false);
   const [endsAt, setEndsAt] = useState('');
+  const [endTimePreset, setEndTimePreset] = useState('none');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
   const [copied, setCopied] = useState(false);
+  const now = Date.now();
+  const endsAtTimestamp = endsAt ? new Date(endsAt).getTime() : NaN;
+  const customEndTimeInvalid = endTimePreset === 'custom' && (!Number.isFinite(endsAtTimestamp) || endsAtTimestamp <= now);
+  const today = localDateValue(new Date());
 
   function updateOption(index, value) {
     setOptions((current) => current.map((option, i) => i === index ? value : option));
+  }
+
+  function selectEndTime(preset) {
+    if (preset !== 'custom' && endTimePreset === preset) {
+      setEndTimePreset('none');
+      setEndsAt('');
+      return;
+    }
+    setEndTimePreset(preset);
+    if (preset === 'custom') {
+      const tomorrowAtNine = new Date();
+      tomorrowAtNine.setDate(tomorrowAtNine.getDate() + 1);
+      tomorrowAtNine.setHours(9, 0, 0, 0);
+      setEndsAt(toLocalDateTimeValue(tomorrowAtNine));
+      return;
+    }
+    if (preset === 'none') {
+      if (preset === 'none') setEndsAt('');
+      return;
+    }
+    const durations = { hour: 60 * 60_000, day: 24 * 60 * 60_000, week: 7 * 24 * 60 * 60_000 };
+    setEndsAt(toLocalDateTimeValue(new Date(Date.now() + durations[preset])));
   }
 
   function validate() {
@@ -29,6 +76,7 @@ export default function CreatePollPage() {
     if (cleanOptions.some((option) => option.length === 0)) return 'Fill in every option.';
     if (cleanOptions.some((option) => [...option].length > 100)) return 'Each option must be 100 characters or fewer.';
     if (new Set(cleanOptions.map((option) => option.toLocaleLowerCase())).size !== cleanOptions.length) return 'Options must be unique.';
+    if (endTimePreset === 'custom' && customEndTimeInvalid) return 'Pick a time after now.';
     if (endsAt && (!Number.isFinite(new Date(endsAt).getTime()) || new Date(endsAt).getTime() <= Date.now())) return 'Choose an end time in the future.';
     return '';
   }
@@ -98,7 +146,7 @@ export default function CreatePollPage() {
           <div className="qr-panel"><QRCode value={created.shareURL} /><span>Scan to open this poll</span></div>
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="created-actions">
-            <button className="button button-primary" type="button" onClick={() => navigate(`/p/${created.poll.slug}/analytics`)}>View analytics</button>
+            <button className="button button-primary" type="button" onClick={() => navigate(`/polls/${created.poll.slug}`)}>View analytics</button>
             <button className="button button-secondary" type="button" onClick={() => navigate('/dashboard')}>Back to dashboard</button>
           </div>
         </section>
@@ -131,8 +179,29 @@ export default function CreatePollPage() {
           </div>
           <button type="button" className="add-option" disabled={options.length >= 6} onClick={() => setOptions((current) => [...current, ''])}>+ Add option</button>
 
-          <label htmlFor="poll-ends-at">End time <span className="optional-label">Optional</span></label>
-          <input id="poll-ends-at" type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} />
+          <label>End time <span className="optional-label">Optional</span></label>
+          <div className="end-time-presets" role="group" aria-label="Poll end time">
+            <button type="button" className={endTimePreset === 'hour' ? 'is-selected' : ''} aria-pressed={endTimePreset === 'hour'} onClick={() => selectEndTime('hour')}>1 hour</button>
+            <button type="button" className={endTimePreset === 'day' ? 'is-selected' : ''} aria-pressed={endTimePreset === 'day'} onClick={() => selectEndTime('day')}>24 hours</button>
+            <button type="button" className={endTimePreset === 'week' ? 'is-selected' : ''} aria-pressed={endTimePreset === 'week'} onClick={() => selectEndTime('week')}>7 days</button>
+            <button type="button" className={endTimePreset === 'custom' ? 'is-selected' : ''} aria-pressed={endTimePreset === 'custom'} onClick={() => selectEndTime('custom')}>Custom</button>
+          </div>
+          {endTimePreset === 'custom' && (
+            <div className="end-time-custom-wrap">
+              <div className="end-time-custom">
+                <div className="end-time-field">
+                  <label htmlFor="poll-end-date">Date</label>
+                  <input id="poll-end-date" type="date" min={today} value={endsAt.split('T')[0] || ''} onChange={(event) => setEndsAt(event.target.value ? `${event.target.value}T${endsAt.split('T')[1] || '09:00'}` : '')} />
+                </div>
+                <div className="end-time-field">
+                  <label htmlFor="poll-end-time">Time</label>
+                  <input id="poll-end-time" type="time" value={endsAt.split('T')[1] || ''} onChange={(event) => setEndsAt(endsAt.split('T')[0] ? `${endsAt.split('T')[0]}T${event.target.value || '09:00'}` : '')} />
+                </div>
+              </div>
+              {customEndTimeInvalid ? <p className="end-time-error" role="alert">Pick a time after now.</p> : <p className="end-time-summary">{formatLocalEndTime(endsAt)}</p>}
+              <p className="end-time-help">Voting stops automatically at this time.</p>
+            </div>
+          )}
           <label className="toggle-row" htmlFor="allow-multiple">
             <span><strong>Allow multiple selections</strong><small>Voters may choose more than one option.</small></span>
             <input id="allow-multiple" type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} />
@@ -141,20 +210,6 @@ export default function CreatePollPage() {
           <button className="button button-primary create-button" type="submit" disabled={busy}>{busy && <i className="button-spinner" aria-hidden="true"/>}{busy ? 'Creating…' : 'Create poll'}</button>
         </form>
 
-        <details className="poll-preview">
-          <summary className="preview-label">Poll preview <span aria-hidden="true">⌄</span></summary>
-          <div className="preview-content" aria-label="Poll preview">
-          <span className="preview-live-label">LIVE PREVIEW</span>
-          <div className="preview-card">
-            <span className="preview-status"><i /> ACTIVE POLL</span>
-            <h2>{question.trim() || 'Your question will appear here'}</h2>
-            <div className="preview-options">
-              {options.map((option, index) => <div key={index}><span className="preview-radio" />{option.trim() || `Choice ${index + 1}`}</div>)}
-            </div>
-            <p>{allowMultiple ? 'Choose all that apply' : 'Choose one option'}</p>
-          </div>
-          </div>
-        </details>
       </section>
     </main></div>
   );

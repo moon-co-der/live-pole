@@ -41,24 +41,19 @@ local eventIndex = 4 + optionCount
 redis.call('XADD', KEYS[3], '*',
   'voteId', ARGV[eventIndex], 'pollId', ARGV[eventIndex + 1],
   'optionId', ARGV[eventIndex + 2], 'createdAt', ARGV[eventIndex + 3],
-  'device', ARGV[eventIndex + 4], 'voterHash', ARGV[eventIndex + 5], 'source', ARGV[eventIndex + 6],
-  'country', ARGV[eventIndex + 7], 'visitorHash', ARGV[eventIndex + 8])
+  'voterHash', ARGV[eventIndex + 4])
 return result
 `
 
 const voteStreamKey = "votes:stream"
 
 type VoteStreamEntry struct {
-	ID          string
-	PollID      string
-	OptionID    string
-	VoteID      string
-	CreatedAt   string
-	Device      string
-	VoterHash   string
-	Source      string
-	Country     string
-	VisitorHash string
+	ID        string
+	PollID    string
+	OptionID  string
+	VoteID    string
+	CreatedAt string
+	VoterHash string
 }
 
 type StreamMessage struct {
@@ -437,7 +432,7 @@ func (c *Client) CastVoteWithTTL(ctx context.Context, voterKey, countsKey string
 	result := VoteResult{Counts: make(map[string]int64, len(optionIDs))}
 	args := []string{"EVAL", voteScript, "3", voterKey, countsKey, voteStreamKey, strconv.FormatInt(ttlSeconds(ttl), 10), strconv.Itoa(len(optionIDs)), optionID}
 	args = append(args, optionIDs...)
-	args = append(args, entry.VoteID, entry.PollID, entry.OptionID, entry.CreatedAt, entry.Device, entry.VoterHash, entry.Source, entry.Country, entry.VisitorHash)
+	args = append(args, entry.VoteID, entry.PollID, entry.OptionID, entry.CreatedAt, entry.VoterHash)
 	err := withConnection(ctx, c.url, func(conn net.Conn, reader *bufio.Reader) error {
 		response, err := commandValue(conn, reader, args...)
 		if err != nil {

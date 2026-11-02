@@ -48,21 +48,15 @@ func (r *AnalyticsRepository) OwnerSnapshot(ctx context.Context, owner bson.Obje
 	return AnalyticsSnapshot{Polls: polls, Votes: votes, Views: views}, nil
 }
 
-func (r *AnalyticsRepository) PollSnapshot(ctx context.Context, owner, id bson.ObjectID) (*models.Poll, AnalyticsSnapshot, error) {
+func (r *AnalyticsRepository) PollSnapshot(ctx context.Context, owner bson.ObjectID, slugOrID string) (*models.Poll, AnalyticsSnapshot, error) {
 	var poll models.Poll
-	err := r.polls.FindOne(ctx, bson.M{"_id": id, "owner": owner}).Decode(&poll)
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, AnalyticsSnapshot{}, nil
+	filter := bson.M{"owner": owner}
+	if id, parseErr := bson.ObjectIDFromHex(slugOrID); parseErr == nil {
+		filter["_id"] = id
+	} else {
+		filter["slug"] = slugOrID
 	}
-	if err != nil {
-		return nil, AnalyticsSnapshot{}, err
-	}
-	return r.snapshotForPoll(ctx, &poll)
-}
-
-func (r *AnalyticsRepository) PollSnapshotBySlug(ctx context.Context, owner bson.ObjectID, slug string) (*models.Poll, AnalyticsSnapshot, error) {
-	var poll models.Poll
-	err := r.polls.FindOne(ctx, bson.M{"slug": slug, "owner": owner}).Decode(&poll)
+	err := r.polls.FindOne(ctx, filter).Decode(&poll)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, AnalyticsSnapshot{}, nil
 	}

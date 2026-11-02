@@ -167,13 +167,18 @@ func (s *PollService) List(ctx context.Context, ownerID string, query PollListQu
 	return s.polls.List(ctx, filter)
 }
 
-func (s *PollService) GetOwned(ctx context.Context, ownerID, pollID string) (*models.Poll, error) {
+func (s *PollService) GetOwned(ctx context.Context, ownerID, pollKey string) (*models.Poll, error) {
 	owner, ownerErr := bson.ObjectIDFromHex(ownerID)
-	id, idErr := bson.ObjectIDFromHex(pollID)
-	if ownerErr != nil || idErr != nil {
+	if ownerErr != nil {
 		return nil, ErrPollNotFound
 	}
-	poll, err := s.polls.FindOwned(ctx, id, owner)
+	var poll *models.Poll
+	var err error
+	if id, parseErr := bson.ObjectIDFromHex(pollKey); parseErr == nil {
+		poll, err = s.polls.FindOwned(ctx, id, owner)
+	} else {
+		poll, err = s.polls.FindOwnedBySlug(ctx, pollKey, owner)
+	}
 	if err != nil {
 		return nil, err
 	}

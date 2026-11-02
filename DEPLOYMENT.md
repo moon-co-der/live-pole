@@ -59,4 +59,4 @@ The Render Blueprint configures `CLIENT_URL` for the deployed Vercel origin `htt
 
 ## Local development proxy
 
-`VITE_DEV_API_TARGET` is optional and only configures Vite's `/api` and `/ws` proxy. Set it in `frontend/.env` to the backend origin used for local development. The Vite proxy is disabled when this variable is empty.
+`VITE_DEV_API_TARGET` configures Vite's `/api` and `/ws` proxy. It defaults to `http://localhost:5000`, the local Go API. Set it in `frontend/.env` only when the local API uses another origin.

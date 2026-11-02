@@ -76,7 +76,7 @@ func (h *PollHandler) Get(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
-	poll, err := h.polls.GetOwned(c.Request.Context(), ownerID.(string), c.Param("id"))
+	poll, err := h.polls.GetOwned(c.Request.Context(), ownerID.(string), c.Param("slug"))
 	if errors.Is(err, services.ErrPollNotFound) {
 		writeError(c, http.StatusNotFound, "Poll not found.")
 		return
@@ -94,7 +94,7 @@ func (h *PollHandler) Close(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
-	poll, err := h.polls.Close(c.Request.Context(), ownerID.(string), c.Param("id"))
+	poll, err := h.polls.Close(c.Request.Context(), ownerID.(string), c.Param("slug"))
 	if errors.Is(err, services.ErrPollNotFound) {
 		writeError(c, http.StatusNotFound, "Poll not found.")
 		return
@@ -112,7 +112,7 @@ func (h *PollHandler) Delete(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
-	if err := h.polls.Delete(c.Request.Context(), ownerID.(string), c.Param("id")); errors.Is(err, services.ErrPollNotFound) {
+	if err := h.polls.Delete(c.Request.Context(), ownerID.(string), c.Param("slug")); errors.Is(err, services.ErrPollNotFound) {
 		writeError(c, http.StatusNotFound, "Poll not found.")
 		return
 	} else if err != nil {
