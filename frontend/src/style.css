@@ -349,6 +349,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .public-poll-status i.is-closed { background: var(--slate); }
 .public-poll-status i.is-reconnecting { background: var(--blue); animation: status-pulse 1.2s ease-in-out infinite alternate; }
 @keyframes status-pulse { to { opacity: .45; } }
+.public-poll-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 0 0 22px; }
+.public-poll-stat { display: grid; min-width: 0; min-height: 66px; align-content: center; gap: 3px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
+.public-poll-stat strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 17px; font-weight: 650; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.public-poll-stat span { overflow: hidden; color: var(--muted); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.public-poll-stat.is-empty strong { color: var(--secondary); font-size: 13px; font-weight: 550; line-height: 15px; white-space: normal; }
+.public-stat-value { animation: public-stat-change 240ms ease-out; }
+@keyframes public-stat-change { from { opacity: .35; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 500px) { .public-poll-stats { gap: 6px; margin-bottom: 18px; } .public-poll-stat { min-height: 60px; padding: 7px 8px; } .public-poll-stat strong { font-size: 15px; } .public-poll-stat.is-empty strong { font-size: 12px; } .public-poll-stat span { font-size: 11px; } }
+@media (max-width: 359px) { .public-poll-stats { grid-template-columns: 1fr; } .public-poll-stat { min-height: 54px; padding: 8px 10px; } }
 .public-poll-card h1 { margin: 0 0 22px; color: var(--text); font-size: clamp(22px, 5vw, 28px); line-height: 36px; overflow-wrap: anywhere; }
 .public-poll-message { color: var(--secondary); }
 .vote-skeleton { display: grid; gap: 12px; margin: 24px 0; }
@@ -375,8 +384,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .public-result-track { height: 8px; overflow: hidden; border-radius: 999px; background: var(--grid); }
 .public-result-track i { display: block; height: 100%; border-radius: inherit; background: var(--purple); transition: width 300ms ease; }
 .public-poll-results > p { margin: 4px 0 0; color: var(--secondary); font-size: 12px; text-align: right; }
-.public-view-results { display: block; margin: 12px auto 0; padding: 8px 10px; border: 0; background: transparent; color: var(--blue); font-weight: 500; cursor: pointer; }
-.public-view-results:hover { text-decoration: underline; }
 .public-poll-footer { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
 .analytics-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 10px 0 8px; color: var(--secondary); font-size: 13px; }
 .analytics-intervals { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); }
