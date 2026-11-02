@@ -194,7 +194,6 @@ export default function PublicPollPage() {
                 </form>
               </>
             )}
-            <p className="public-poll-footer">We collect anonymous usage stats.</p>
           </>
         )}
       </section>
