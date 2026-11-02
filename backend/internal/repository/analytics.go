@@ -57,6 +57,23 @@ func (r *AnalyticsRepository) PollSnapshot(ctx context.Context, owner, id bson.O
 	if err != nil {
 		return nil, AnalyticsSnapshot{}, err
 	}
+	return r.snapshotForPoll(ctx, &poll)
+}
+
+func (r *AnalyticsRepository) PollSnapshotBySlug(ctx context.Context, owner bson.ObjectID, slug string) (*models.Poll, AnalyticsSnapshot, error) {
+	var poll models.Poll
+	err := r.polls.FindOne(ctx, bson.M{"slug": slug, "owner": owner}).Decode(&poll)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, AnalyticsSnapshot{}, nil
+	}
+	if err != nil {
+		return nil, AnalyticsSnapshot{}, err
+	}
+	return r.snapshotForPoll(ctx, &poll)
+}
+
+func (r *AnalyticsRepository) snapshotForPoll(ctx context.Context, poll *models.Poll) (*models.Poll, AnalyticsSnapshot, error) {
+	id := poll.ID
 	votes, err := findVotes(ctx, r.votes, []bson.ObjectID{id})
 	if err != nil {
 		return nil, AnalyticsSnapshot{}, err
@@ -65,7 +82,7 @@ func (r *AnalyticsRepository) PollSnapshot(ctx context.Context, owner, id bson.O
 	if err != nil {
 		return nil, AnalyticsSnapshot{}, err
 	}
-	return &poll, AnalyticsSnapshot{Polls: []models.Poll{poll}, Votes: votes, Views: views}, nil
+	return poll, AnalyticsSnapshot{Polls: []models.Poll{*poll}, Votes: votes, Views: views}, nil
 }
 
 func findVotes(ctx context.Context, collection *mongo.Collection, ids []bson.ObjectID) ([]models.Vote, error) {

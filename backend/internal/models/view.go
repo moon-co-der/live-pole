@@ -7,8 +7,11 @@ import (
 )
 
 type View struct {
-	ID        bson.ObjectID `bson:"_id,omitempty" json:"-"`
-	PollID    bson.ObjectID `bson:"pollId" json:"pollId"`
-	CreatedAt time.Time     `bson:"createdAt" json:"createdAt"`
-	Source    string        `bson:"source" json:"source"`
+	ID          bson.ObjectID `bson:"_id,omitempty" json:"-"`
+	PollID      bson.ObjectID `bson:"pollId" json:"pollId"`
+	CreatedAt   time.Time     `bson:"createdAt" json:"createdAt"`
+	Source      string        `bson:"source" json:"source"`
+	Device      string        `bson:"device" json:"device"`
+	Country     string        `bson:"country,omitempty" json:"country,omitempty"`
+	VisitorHash string        `bson:"visitorHash,omitempty" json:"-"`
 }

@@ -82,7 +82,7 @@ func main() {
 	redisClient := redisx.NewClient(cfg.RedisURL)
 	pollService := services.NewPollService(polls, votes, views, redisClient, cfg.RedisURL)
 	pollHandler := handlers.NewPollHandler(pollService)
-	publicPollHandler := handlers.NewPublicPollHandler(services.NewPublicPollService(polls, redisClient, votes, views, redisClient), cfg.CookieSecure)
+	publicPollHandler := handlers.NewPublicPollHandler(services.NewPublicPollService(polls, redisClient, votes, views, redisClient, cfg.JWTSecret), cfg.CookieSecure, cfg.TrustProxyHeaders)
 	analyticsHandler := handlers.NewAnalyticsHandler(services.NewAnalyticsService(repository.NewAnalyticsRepository(mongoClient.Database("live_polling"))))
 	hub := realtime.NewHub()
 	hubDone := make(chan struct{})
@@ -118,8 +118,8 @@ func main() {
 				if json.Unmarshal([]byte(payload), &message) == nil && pollID != "" {
 					hub.Broadcast(pollID, message, message.Type == "poll_closed")
 					_ = json.Unmarshal([]byte(payload), &ownerEvent)
-					if ownerEvent.OwnerID != "" && message.Type == "update" {
-						hub.BroadcastDashboard(ownerEvent.OwnerID, realtime.Message{Type: "dashboard:update", Data: map[string]any{"pollId": pollID, "counts": message.Counts, "total": message.Total}})
+					if ownerEvent.OwnerID != "" && (message.Type == "update" || message.Type == "view_update") {
+						hub.BroadcastDashboard(ownerEvent.OwnerID, realtime.Message{Type: "dashboard:update", Data: map[string]any{"pollId": pollID, "event": message.Type, "counts": message.Counts, "total": message.Total}})
 					}
 				}
 			})
@@ -141,6 +141,7 @@ func main() {
 	r.POST("/api/auth/register", middleware.RateLimit(redisClient, "register", 10, time.Minute, cfg.TrustProxyHeaders), authHandler.Register)
 	r.POST("/api/auth/login", middleware.RateLimit(redisClient, "login", 10, time.Minute, cfg.TrustProxyHeaders), authHandler.Login)
 	r.GET("/api/public/polls/:slug", middleware.RateLimit(redisClient, "public-get", 60, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.Get)
+	r.GET("/api/public/polls/:slug/results", middleware.RateLimit(redisClient, "public-results", 60, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.Results)
 	r.POST("/api/public/polls/:slug/vote", middleware.RateLimit(redisClient, "vote", 10, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.Vote)
 	r.POST("/api/public/polls/:slug/live-ticket", middleware.RateLimit(redisClient, "public-live-ticket", 30, time.Minute, cfg.TrustProxyHeaders), publicPollHandler.LiveTicket)
 	r.GET("/ws/polls/:slug", middleware.RateLimit(redisClient, "websocket", 20, time.Minute, cfg.TrustProxyHeaders), wsHandler.Serve)
@@ -158,6 +159,8 @@ func main() {
 	ownerRoutes.GET("/analytics/votes-over-time", analyticsHandler.VotesOverTime)
 	ownerRoutes.GET("/analytics/top-polls", analyticsHandler.TopPolls)
 	ownerRoutes.GET("/polls/:id/analytics", analyticsHandler.Poll)
+	ownerRoutes.GET("/polls/by-slug/:slug/analytics", analyticsHandler.PollBySlug)
+	ownerRoutes.GET("/polls/by-slug/:slug/analytics.csv", analyticsHandler.ExportBySlug)
 	r.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Route not found"})
 	})

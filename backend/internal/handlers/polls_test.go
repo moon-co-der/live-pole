@@ -206,6 +206,13 @@ func (m *memoryCounts) Get(_ context.Context, key string) (string, bool, error) 
 	value, found := m.metadata[key]
 	return value, found, nil
 }
+func (m *memoryCounts) GetDel(_ context.Context, key string) (string, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value, found := m.metadata[key]
+	delete(m.metadata, key)
+	return value, found, nil
+}
 func (m *memoryCounts) DeletePollKeys(_ context.Context, pollID, slug string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

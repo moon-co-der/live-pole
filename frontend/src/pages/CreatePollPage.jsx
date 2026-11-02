@@ -98,7 +98,7 @@ export default function CreatePollPage() {
           <div className="qr-panel"><QRCode value={created.shareURL} /><span>Scan to open this poll</span></div>
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="created-actions">
-            <button className="button button-primary" type="button" onClick={() => navigate(`/polls/${created.id}`)}>View analytics</button>
+            <button className="button button-primary" type="button" onClick={() => navigate(`/p/${created.poll.slug}/analytics`)}>View analytics</button>
             <button className="button button-secondary" type="button" onClick={() => navigate('/dashboard')}>Back to dashboard</button>
           </div>
         </section>

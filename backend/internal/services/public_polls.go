@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -42,11 +43,12 @@ type PollPublisher interface {
 }
 
 type PublicPollService struct {
-	polls     repository.PollStore
-	counts    PublicPollCounts
-	votes     repository.VoteStore
-	views     repository.ViewStore
-	publisher PollPublisher
+	polls         repository.PollStore
+	counts        PublicPollCounts
+	votes         repository.VoteStore
+	views         repository.ViewStore
+	publisher     PollPublisher
+	analyticsSalt string
 }
 
 type PublicPollResultOption struct {
@@ -66,11 +68,19 @@ type PublicPollResponse struct {
 	Results  *PublicPollResults `json:"results,omitempty"`
 }
 
-func NewPublicPollService(polls repository.PollStore, counts PublicPollCounts, votes repository.VoteStore, views repository.ViewStore, publisher PollPublisher) *PublicPollService {
-	return &PublicPollService{polls: polls, counts: counts, votes: votes, views: views, publisher: publisher}
+func NewPublicPollService(polls repository.PollStore, counts PublicPollCounts, votes repository.VoteStore, views repository.ViewStore, publisher PollPublisher, salt ...string) *PublicPollService {
+	analyticsSalt := "livepoll-analytics-local"
+	if len(salt) > 0 && len(salt[0]) >= 32 {
+		analyticsSalt = salt[0]
+	}
+	return &PublicPollService{polls: polls, counts: counts, votes: votes, views: views, publisher: publisher, analyticsSalt: analyticsSalt}
 }
 
 func (s *PublicPollService) Get(ctx context.Context, slug, voterID, referer string) (*PublicPollResponse, error) {
+	return s.GetTracked(ctx, slug, voterID, referer, "", "")
+}
+
+func (s *PublicPollService) GetTracked(ctx context.Context, slug, voterID, referer, userAgent, country string) (*PublicPollResponse, error) {
 	poll, err := s.findBySlug(ctx, slug)
 	if err != nil {
 		return nil, err
@@ -90,8 +100,13 @@ func (s *PublicPollService) Get(ctx context.Context, slug, voterID, referer stri
 	}
 	if newView {
 		if s.views != nil {
-			if err := s.views.Create(ctx, &models.View{PollID: poll.ID, CreatedAt: time.Now().UTC(), Source: sourceFromReferer(referer)}); err != nil {
+			if err := s.views.Create(ctx, &models.View{PollID: poll.ID, CreatedAt: time.Now().UTC(), Source: sourceFromReferer(referer), Device: deviceFromUserAgent(userAgent), Country: country, VisitorHash: s.analyticsVisitorHash(voterID)}); err != nil {
 				log.Printf("view event insert failed for poll %s: %v", poll.ID.Hex(), err)
+			} else if s.publisher != nil {
+				message, _ := json.Marshal(map[string]any{"type": "view_update", "ownerId": poll.Owner.Hex(), "pollId": poll.ID.Hex()})
+				if err := s.publisher.Publish(ctx, "poll:"+poll.ID.Hex(), string(message)); err != nil {
+					log.Printf("live analytics view publish failed for poll %s: %v", poll.ID.Hex(), err)
+				}
 			}
 		}
 		viewCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -122,6 +137,10 @@ func (s *PublicPollService) Get(ctx context.Context, slug, voterID, referer stri
 }
 
 func (s *PublicPollService) Vote(ctx context.Context, slug, voterID, optionID, userAgent, referer string) (*PublicPollResults, error) {
+	return s.VoteTracked(ctx, slug, voterID, optionID, userAgent, referer, "")
+}
+
+func (s *PublicPollService) VoteTracked(ctx context.Context, slug, voterID, optionID, userAgent, referer, country string) (*PublicPollResults, error) {
 	if strings.TrimSpace(optionID) == "" || utf8.RuneCountInString(optionID) > 64 {
 		return nil, ErrInvalidVote
 	}
@@ -160,7 +179,7 @@ func (s *PublicPollService) Vote(ctx context.Context, slug, voterID, optionID, u
 		optionID,
 		optionIDs,
 		pollCountsTTL(poll),
-		redisx.VoteStreamEntry{VoteID: voteID, PollID: poll.ID.Hex(), OptionID: optionID, CreatedAt: createdAt.Format(time.RFC3339Nano), Device: device, VoterHash: voterHash, Source: sourceFromReferer(referer)},
+		redisx.VoteStreamEntry{VoteID: voteID, PollID: poll.ID.Hex(), OptionID: optionID, CreatedAt: createdAt.Format(time.RFC3339Nano), Device: device, VoterHash: voterHash, Source: sourceFromReferer(referer), Country: country, VisitorHash: s.analyticsVisitorHash(voterID)},
 	)
 	if err != nil {
 		return nil, err
@@ -189,14 +208,25 @@ func (s *PublicPollService) CreateLiveTicket(ctx context.Context, slug, voterID,
 		return ErrPublicPollNotFound
 	}
 	voterHash := hashVoterID(voterID)
-	voted, err := s.counts.Exists(ctx, "voted:"+poll.ID.Hex()+":"+voterHash)
-	if err != nil {
-		return err
-	}
-	if !voted {
-		return ErrAlreadyVoted
-	}
 	return s.counts.Set(ctx, "poll-live-ticket:"+ticket, poll.ID.Hex()+":"+voterHash, 30*time.Second)
+}
+
+func (s *PublicPollService) Results(ctx context.Context, slug string) (*PublicPollResults, error) {
+	poll, err := s.findBySlug(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	if poll == nil || poll.Status == models.PollDraft {
+		return nil, ErrPublicPollNotFound
+	}
+	if err := EnsurePollCounts(ctx, poll, s.counts, s.votes); err != nil {
+		return nil, err
+	}
+	counts, err := s.counts.HGetAll(ctx, "poll:"+poll.ID.Hex()+":counts")
+	if err != nil {
+		return nil, err
+	}
+	return buildPublicResults(poll, counts), nil
 }
 
 func (s *PublicPollService) findBySlug(ctx context.Context, slug string) (*models.Poll, error) {
@@ -235,7 +265,17 @@ func sourceFromReferer(referer string) string {
 	if err != nil || parsed.Hostname() == "" {
 		return "direct"
 	}
-	return parsed.Hostname()
+	host := strings.ToLower(parsed.Hostname())
+	switch {
+	case strings.Contains(host, "whatsapp") || strings.Contains(host, "wa.me"):
+		return "whatsapp"
+	case strings.Contains(host, "instagram"):
+		return "instagram"
+	case strings.Contains(host, "twitter") || strings.Contains(host, "x.com") || strings.Contains(host, "t.co"):
+		return "twitter/x"
+	default:
+		return "other"
+	}
 }
 
 func toPublicPoll(poll *models.Poll) models.PublicPoll {
@@ -267,9 +307,18 @@ func hashVoterID(voterID string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func (s *PublicPollService) analyticsVisitorHash(visitorID string) string {
+	mac := hmac.New(sha256.New, []byte(s.analyticsSalt))
+	_, _ = mac.Write([]byte(visitorID))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func deviceFromUserAgent(userAgent string) string {
 	ua := strings.ToLower(userAgent)
-	if strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") {
+	if strings.Contains(ua, "ipad") || strings.Contains(ua, "tablet") || strings.Contains(ua, "kindle") {
+		return "tablet"
+	}
+	if strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone") {
 		return "mobile"
 	}
 	return "desktop"

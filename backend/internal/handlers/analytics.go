@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"live-polling/internal/services"
@@ -72,9 +75,13 @@ func (h *AnalyticsHandler) Poll(c *gin.Context) {
 		writeError(c, 401, "Authentication required.")
 		return
 	}
-	data, err := h.analytics.Poll(c.Request.Context(), owner.(string), c.Param("id"))
+	data, err := h.analytics.PollInterval(c.Request.Context(), owner.(string), c.Param("id"), c.DefaultQuery("interval", "day"))
 	if errors.Is(err, services.ErrPollNotFound) {
 		writeError(c, 404, "Poll not found.")
+		return
+	}
+	if errors.Is(err, services.ErrInvalidPoll) {
+		writeError(c, 400, "Interval must be minute, hour, or day.")
 		return
 	}
 	if err != nil {
@@ -82,4 +89,52 @@ func (h *AnalyticsHandler) Poll(c *gin.Context) {
 		return
 	}
 	c.JSON(200, data)
+}
+
+func (h *AnalyticsHandler) PollBySlug(c *gin.Context) {
+	owner, ok := c.Get("userId")
+	if !ok {
+		writeError(c, 401, "Authentication required.")
+		return
+	}
+	interval := c.DefaultQuery("interval", "day")
+	data, err := h.analytics.PollBySlug(c.Request.Context(), owner.(string), c.Param("slug"), interval)
+	if errors.Is(err, services.ErrPollNotFound) {
+		writeError(c, 404, "Poll not found.")
+		return
+	}
+	if errors.Is(err, services.ErrInvalidPoll) {
+		writeError(c, 400, "Interval must be minute, hour, or day.")
+		return
+	}
+	if err != nil {
+		writeError(c, 500, "Unable to load poll analytics.")
+		return
+	}
+	c.JSON(http.StatusOK, data)
+}
+
+func (h *AnalyticsHandler) ExportBySlug(c *gin.Context) {
+	owner, ok := c.Get("userId")
+	if !ok {
+		writeError(c, 401, "Authentication required.")
+		return
+	}
+	rows, err := h.analytics.VoteTimelineBySlug(c.Request.Context(), owner.(string), c.Param("slug"))
+	if errors.Is(err, services.ErrPollNotFound) {
+		writeError(c, 404, "Poll not found.")
+		return
+	}
+	if err != nil {
+		writeError(c, 500, "Unable to export vote timeline.")
+		return
+	}
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=livepoll-%s-votes.csv", c.Param("slug")))
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"timestamp_utc", "option", "source", "device", "country"})
+	for _, row := range rows {
+		_ = w.Write([]string{row.At.UTC().Format(time.RFC3339), row.Option, row.Source, row.Device, row.Country})
+	}
+	w.Flush()
 }

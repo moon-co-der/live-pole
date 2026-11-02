@@ -22,6 +22,9 @@ func (f fixedAnalytics) OwnerSnapshot(context.Context, bson.ObjectID) (repositor
 func (f fixedAnalytics) PollSnapshot(context.Context, bson.ObjectID, bson.ObjectID) (*models.Poll, repository.AnalyticsSnapshot, error) {
 	return f.poll, f.snapshot, nil
 }
+func (f fixedAnalytics) PollSnapshotBySlug(context.Context, bson.ObjectID, string) (*models.Poll, repository.AnalyticsSnapshot, error) {
+	return f.poll, f.snapshot, nil
+}
 
 func TestPollAnalyticsZeroVotesReturnsZeroOptionsAndEmptySeries(t *testing.T) {
 	poll := &models.Poll{ID: bson.ObjectID{1}, Slug: "poll1234", Question: "Zero votes?", Status: models.PollActive, Options: []models.PollOption{{ID: "a", Text: "A"}, {ID: "b", Text: "B"}}}

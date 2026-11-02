@@ -25,6 +25,7 @@ function AppRoutes() {
       <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
       <Route path="/polls" element={<ProtectedRoute><MyPollsPage /></ProtectedRoute>} />
       <Route path="/polls/:id" element={<ProtectedRoute><PollAnalyticsPage /></ProtectedRoute>} />
+      <Route path="/p/:slug/analytics" element={<ProtectedRoute><PollAnalyticsPage /></ProtectedRoute>} />
       <Route path="/create" element={<ProtectedRoute><CreatePollPage /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><RoutePlaceholder /></ProtectedRoute>} />
       <Route path="/p/:slug" element={<PublicPollPage />} />
