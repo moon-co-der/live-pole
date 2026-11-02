@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f4f7fb"><title>LivePoll</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/socket.io/socket.io.js" defer></script><script src="/poll.js" defer></script>
+</head>
+<body><main class="page"><section class="card" aria-live="polite">
+  <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 19v-6M13 24V8M19 20v-8M25 23V9"/></svg><span>livepoll</span></div>
+  <div id="status" class="status"><i class="dot"></i><span>LIVE POLL</span></div>
+  <h1 id="question">Loading poll…</h1>
+  <div id="content"></div><p id="error" class="error" role="alert"></p>
+</section></main></body></html>
